@@ -17,7 +17,7 @@ jobs:
       - name: Checkout Repo
         uses: actions/checkout@v3
         with:
-          token: ${{ secrets.EU_PAT }}
+          token: ${{ secrets.GFS_PAT }}
 
       - name: Setup Python
         uses: actions/setup-python@v4
@@ -40,10 +40,8 @@ jobs:
         run: |
           HOUR=$(date -u +%H)
           case $HOUR in
-            03|04|05) RUN=00 ;;
-            09|10|11) RUN=06 ;;
-            15|16|17|18) RUN=12 ;;
-            21|22|23) RUN=18 ;;
+            05|06|07) RUN=00 ;;
+            17|18|19|23) RUN=12 ;;
           esac
           DATE=$(date -u +%Y%m%d)
           echo "RUN=$RUN" >> $GITHUB_ENV
