@@ -13,7 +13,6 @@ from scipy.interpolate import RegularGridInterpolator
 from zoneinfo import ZoneInfo
 import numpy as np
 from scipy.ndimage import gaussian_filter
-import fnmatch
 from matplotlib.colors import ListedColormap, BoundaryNorm, LinearSegmentedColormap
 import warnings
 
@@ -272,7 +271,7 @@ def add_ww_legend_bottom(fig, ww_categories, ww_colors_base):
 # Dateien durchgehen
 # ------------------------------
 for filename in sorted(os.listdir(data_dir)):
-    if not fnmatch.fnmatch(filename, "*.f*"):
+    if not filename.endswith(".grib2"):
         continue
     path = os.path.join(data_dir, filename)
     ds = cfgrib.open_dataset(path)
