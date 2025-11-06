@@ -51,76 +51,19 @@ jobs:
           echo "run=$RUN" >> $GITHUB_OUTPUT
           echo "date=$DATE" >> $GITHUB_OUTPUT
 
-      - name: Download t2m GRIB2 files
+      - name: Download GFS GRIB2 data via Python filters
         run: |
-          mkdir -p data/t2m
-          cd data/t2m
-          seq 0 119 | xargs -n 1 -P 2 -I{} bash -c '
-            i_padded=$(printf "%03d" {})
-            URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${{ env.DATE }}%2F${{ env.RUN }}%2Fatmos&file=gfs.t${{ env.RUN }}z.pgrb2.0p25.f${i_padded}&var_TMP=on&lev_2_m_above_ground=on"
-            wget -O t2m_${i_padded}.grib2 "$URL" || echo "Datei $URL nicht verfügbar, überspringe..."
-          '
-
-          seq 120 3 384 | xargs -n 1 -P 2 -I{} bash -c '
-            i_padded=$(printf "%03d" {})
-            URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${{ env.DATE }}%2F${{ env.RUN }}%2Fatmos&file=gfs.t${{ env.RUN }}z.pgrb2.0p25.f${i_padded}&var_TMP=on&lev_2_m_above_ground=on"
-            wget -O t2m_${i_padded}.grib2 "$URL" || echo "Datei $URL nicht verfügbar, überspringe..."
-          '
-
-
-      - name: Download WIND GRIB2 files
-        run: |
-          mkdir -p data/wind
-          cd data/wind
-          seq 0 119 | xargs -n 1 -P 2 -I{} bash -c '
-            i_padded=$(printf "%03d" {})
-            URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${{ env.DATE }}%2F${{ env.RUN }}%2Fatmos&file=gfs.t${{ env.RUN }}z.pgrb2.0p25.f${i_padded}&var_GUST=on&lev_surface=on"
-            wget -O wind_${i_padded}.grib2 "$URL" || echo "Datei $URL nicht verfügbar, überspringe..."
-          '
-
-          seq 120 3 384 | xargs -n 1 -P 2 -I{} bash -c '
-            i_padded=$(printf "%03d" {})
-            URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${{ env.DATE }}%2F${{ env.RUN }}%2Fatmos&file=gfs.t${{ env.RUN }}z.pgrb2.0p25.f${i_padded}&var_GUST=on&lev_surface=on"
-            wget -O wind_${i_padded}.grib2 "$URL" || echo "Datei $URL nicht verfügbar, überspringe..."
-          '
-
-      - name: Download PMSL GRIB2 files
-        run: |
-          mkdir -p data/pmsl
-          cd data/pmsl
-      
-          echo "🔹 Lade PMSL-Dateien für DATE=${{ env.DATE }}, RUN=${{ env.RUN }}"
-      
-          # Variablen exportieren, damit sie in der Subshell sichtbar sind
+          pip install requests
           export DATE=${{ env.DATE }}
           export RUN=${{ env.RUN }}
       
-          echo "🔹 Lade Dateien 0–119..."
-          seq 0 119 | xargs -n 1 -P 2 -I{} bash -c '
-            i_padded=$(printf "%03d" {})
-            URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${DATE}%2F${RUN}%2Fatmos&file=gfs.t${RUN}z.pgrb2.0p25.f${i_padded}&var_PRMSL=on&lev_mean_sea_level=on"
-            echo "→ $URL"
-            for attempt in {1..5}; do
-              wget -q --timeout=60 --max-redirect=20 -O pmsl_${i_padded}.grib2 "$URL" && break
-              echo "⚠️ Versuch $attempt für f${i_padded} fehlgeschlagen, warte 15 s..."
-              sleep 15
-            done
-            [ -s pmsl_${i_padded}.grib2 ] || echo "❌ Datei f${i_padded} nicht verfügbar – überspringe."
-          '
+          echo "🔹 Starte Python-Downloads für GFS (DATE=$DATE, RUN=$RUN)"
+          python scripts/download_t2m.py
+          python scripts/download_wind.py
+          python scripts/download_pmsl.py
       
-          echo "🔹 Lade Dateien 120–384..."
-          seq 120 3 384 | xargs -n 1 -P 2 -I{} bash -c '
-            i_padded=$(printf "%03d" {})
-            URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${DATE}%2F${RUN}%2Fatmos&file=gfs.t${RUN}z.pgrb2.0p25.f${i_padded}&var_PRMSL=on&lev_mean_sea_level=on"
-            echo "→ $URL"
-            for attempt in {1..5}; do
-              wget -q --timeout=60 --max-redirect=20 -O pmsl_${i_padded}.grib2 "$URL" && break
-              echo "⚠️ Versuch $attempt für f${i_padded} fehlgeschlagen, warte 15 s..."
-              sleep 15
-            done
-            [ -s pmsl_${i_padded}.grib2 ] || echo "❌ Datei f${i_padded} nicht verfügbar – überspringe."
-          '
-      
+          echo "✅ Alle Variablen wurden erfolgreich geladen!"
+
 
       - name: Upload GRIB2 as artifact
         uses: actions/upload-artifact@v4
