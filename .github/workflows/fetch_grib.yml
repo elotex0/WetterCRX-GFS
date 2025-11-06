@@ -121,6 +121,7 @@ jobs:
             done
             [ -s wind_${i_padded}.grib2 ] || echo "❌ Datei f${i_padded} nicht verfügbar – überspringe."
           '
+
       - name: Download PMSL GRIB2 files
         run: |
           mkdir -p data/pmsl
