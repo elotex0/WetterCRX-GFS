@@ -422,7 +422,7 @@ for filename in sorted(os.listdir(data_dir)):
 
 
     if var_type == "pmsl_eu":
-        target_res = 0.1   # gröber für Europa (~11 km)
+        target_res = 0.13   # gröber für Europa (~11 km)
         lon_min, lon_max, lat_min, lat_max = extent_eu
         buffer = target_res * 20  # Puffer für Interpolation
         nx = int(round(lon_max - lon_min) / target_res) + 1
