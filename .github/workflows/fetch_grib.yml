@@ -91,13 +91,13 @@ jobs:
           seq 0 119 | xargs -n 1 -P 12 -I{} bash -c '
             i_padded=$(printf "%03d" {})
             URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${{ env.DATE }}%2F${{ env.RUN }}%2Fatmos&file=gfs.t${{ env.RUN }}z.pgrb2.0p25.f${i_padded}&var_PRMSL=on&lev_mean_sea_level=on"
-            wget -O wind_${i_padded}.grib2 "$URL" || echo "Datei $URL nicht verfügbar, überspringe..."
+            wget -O pmsl_${i_padded}.grib2 "$URL" || echo "Datei $URL nicht verfügbar, überspringe..."
           '
 
           seq 120 3 384 | xargs -n 1 -P 12 -I{} bash -c '
             i_padded=$(printf "%03d" {})
             URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${{ env.DATE }}%2F${{ env.RUN }}%2Fatmos&file=gfs.t${{ env.RUN }}z.pgrb2.0p25.f${i_padded}&var_PRMSL=on&lev_mean_sea_level=on"
-            wget -O wind_${i_padded}.grib2 "$URL" || echo "Datei $URL nicht verfügbar, überspringe..."
+            wget -O pmsl_${i_padded}.grib2 "$URL" || echo "Datei $URL nicht verfügbar, überspringe..."
           '
       
 
