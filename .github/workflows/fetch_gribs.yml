@@ -38,7 +38,7 @@ jobs:
       - name: Set RUN and DATE
         id: set_run_date
         run: |
-          RUN =12
+          RUN=12
           DATE=20251105
           DATE=$(date -u +%Y%m%d)
           echo "RUN=$RUN" >> $GITHUB_ENV
