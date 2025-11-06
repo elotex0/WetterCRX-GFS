@@ -90,7 +90,7 @@ jobs:
           cd data/pmsl
       
           echo "🔹 Lade Dateien 0–119..."
-          seq 0 119 | xargs -n 1 -P 12 -I{} bash -c '
+          seq 0 119 | xargs -n 1 -P 4 -I{} bash -c '
             i_padded=$(printf "%03d" {})
             URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${{ env.DATE }}%2F${{ env.RUN }}%2Fatmos&file=gfs.t${{ env.RUN }}z.pgrb2.0p25.f${i_padded}&var_PRMSL=on&lev_mean_sea_level=on"
             wget -q --show-progress --max-redirect=20 -O pmsl_${i_padded}.grib2 "$URL" \
@@ -98,7 +98,7 @@ jobs:
           '
       
           echo "🔹 Lade Dateien 120–384..."
-          seq 120 3 384 | xargs -n 1 -P 12 -I{} bash -c '
+          seq 120 3 384 | xargs -n 1 -P 4 -I{} bash -c '
             i_padded=$(printf "%03d" {})
             URL="https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl?dir=%2Fgfs.${{ env.DATE }}%2F${{ env.RUN }}%2Fatmos&file=gfs.t${{ env.RUN }}z.pgrb2.0p25.f${i_padded}&var_PRMSL=on&lev_mean_sea_level=on"
             wget -q --show-progress --max-redirect=20 -O pmsl_${i_padded}.grib2 "$URL" \
