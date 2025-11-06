@@ -40,7 +40,6 @@ jobs:
         run: |
           RUN=12
           DATE=20251105
-          DATE=$(date -u +%Y%m%d)
           echo "RUN=$RUN" >> $GITHUB_ENV
           echo "DATE=$DATE" >> $GITHUB_ENV
           echo "run=$RUN" >> $GITHUB_OUTPUT
