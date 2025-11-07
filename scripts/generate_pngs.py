@@ -602,7 +602,7 @@ for filename in sorted(os.listdir(data_dir)):
     else:
         # 🇩🇪 Deutschland: Bundesländer, Grenzen und Städte
         ax.add_feature(cfeature.STATES.with_scale("10m"), edgecolor="#2C2C2C", linewidth=1)
-        ax.add_feature(cfeature.BORDERS, linewidth=1.0, edgecolor="#2C2C2C", linewidth=1)
+        ax.add_feature(cfeature.BORDERS, linestyle=":", edgecolor="#2C2C2C", linewidth=1)
         ax.add_feature(cfeature.COASTLINE, linewidth=1.0, edgecolor="black")
 
         for _, city in cities.iterrows():
