@@ -578,7 +578,7 @@ for filename in sorted(os.listdir(data_dir)):
                 lon[max_idx[1]], lat[max_idx[0]],
                 f"H\n{data_hpa[max_idx]:.0f}",
                 color='red', fontsize=11, fontweight='bold',
-                ha='center', va='center'
+                ha='center', va='center',
                 path_effects=[path_effects.withStroke(linewidth=2, foreground='white')]
             )
 
