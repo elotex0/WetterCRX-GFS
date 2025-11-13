@@ -35,36 +35,15 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Restore wgrib2 cache
-        id: cache-wgrib2
-        uses: actions/cache@v4
-        with:
-          path: /usr/local/bin/wgrib2
-          key: wgrib2-epic-v1
-
-      - name: Build wgrib2 from source (EPIC)
-        if: steps.cache-wgrib2.outputs.cache-hit != 'true'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y gfortran make wget git
-          git clone https://github.com/NOAA-EMC/NCEPLIBS-wgrib2.git
-          cd NCEPLIBS-wgrib2
-          make
-          sudo cp wgrib2/wgrib2 /usr/local/bin/wgrib2
-
-      - name: Check wgrib2
-        run: wgrib2 -version
-
-  
       - name: Set RUN and DATE
         id: set_run_date
         run: |
           HOUR=$(date -u +%H)
           case $HOUR in
-            05|06|07|08|09) RUN=00 ;;
-            11|12|13|14) RUN=06 ;;
-            17|18|19|20) RUN=12 ;;
-            23|00|01|02) RUN=18 ;;
+            05|06|07) RUN=00 ;;
+            11|12|13) RUN=06 ;;
+            17|18|19) RUN=12 ;;
+            23|00|01) RUN=18 ;;
           esac
           DATE=$(date -u +%Y%m%d)
           echo "RUN=$RUN" >> $GITHUB_ENV
@@ -79,6 +58,8 @@ jobs:
           export RUN=${{ env.RUN }}
       
           echo "🔹 Starte Python-Downloads für GFS (DATE=$DATE, RUN=$RUN)"
+          python scripts/download_t2m.py
+          python scripts/download_wind.py
           python scripts/download_pmsl.py
       
           echo "✅ Alle Variablen wurden erfolgreich geladen!"
@@ -101,8 +82,8 @@ jobs:
     needs: fetch_and_generate
     strategy:
       matrix:
-        variable: [pmsl, pmsl_eu]
-      max-parallel: 2
+        variable: [t2m, wind, pmsl, pmsl_eu]
+      max-parallel: 4
       
     steps:
       - name: Checkout Repo
