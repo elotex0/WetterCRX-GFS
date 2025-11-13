@@ -58,8 +58,6 @@ jobs:
           export RUN=${{ env.RUN }}
       
           echo "🔹 Starte Python-Downloads für GFS (DATE=$DATE, RUN=$RUN)"
-          python scripts/download_t2m.py
-          python scripts/download_wind.py
           python scripts/download_pmsl.py
       
           echo "✅ Alle Variablen wurden erfolgreich geladen!"
@@ -82,8 +80,8 @@ jobs:
     needs: fetch_and_generate
     strategy:
       matrix:
-        variable: [t2m, wind, pmsl, pmsl_eu]
-      max-parallel: 4
+        variable: [pmsl, pmsl_eu]
+      max-parallel: 2
       
     steps:
       - name: Checkout Repo
