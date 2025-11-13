@@ -35,27 +35,23 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # 1) Cache versuchen zu holen
       - name: Restore wgrib2 cache
         id: cache-wgrib2
         uses: actions/cache@v4
         with:
           path: /usr/local/bin/wgrib2
-          key: wgrib2-binary-v1
+          key: wgrib2-epic-v1
 
-      # 2) Falls cache verpasst → wgrib2 builden
-      - name: Build wgrib2 from source
+      - name: Build wgrib2 from source (EPIC)
         if: steps.cache-wgrib2.outputs.cache-hit != 'true'
         run: |
           sudo apt-get update
-          sudo apt-get install -y gfortran make wget
-          wget https://ftp.cpc.ncep.noaa.gov/wd51we/wgrib2/wgrib2.tgz
-          tar xvf wgrib2.tgz
-          cd grib2
+          sudo apt-get install -y gfortran make wget git
+          git clone https://github.com/NOAA-EMC/NCEPLIBS-wgrib2.git
+          cd NCEPLIBS-wgrib2
           make
           sudo cp wgrib2/wgrib2 /usr/local/bin/wgrib2
 
-      # 3) Test ob alles funktioniert
       - name: Check wgrib2
         run: wgrib2 -version
 
