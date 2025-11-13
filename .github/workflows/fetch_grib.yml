@@ -8,7 +8,7 @@ jobs:
   # 1️⃣ Fetch all GRIB2 data
   # -------------------------------------------------------
   fetch_and_generate:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       run: ${{ steps.set_run_date.outputs.run }}
       date: ${{ steps.set_run_date.outputs.date }}
