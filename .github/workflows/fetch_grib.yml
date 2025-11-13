@@ -35,10 +35,17 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
+      - name: Install Mambaforge
+        uses: conda-incubator/setup-miniconda@v3
+        with:
+          mamba-version: "*"
+          python-version: "3.11"
+          activate-environment: gfs
+          environment-file: ""
+          auto-update-conda: true
+
       - name: Install wgrib2
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y wgrib2
+        run: mamba install -c conda-forge -y wgrib2
 
       - name: Set RUN and DATE
         id: set_run_date
