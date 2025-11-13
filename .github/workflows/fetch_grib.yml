@@ -41,7 +41,7 @@ jobs:
           HOUR=$(date -u +%H)
           case $HOUR in
             05|06|07) RUN=00 ;;
-            11|12|13) RUN=06 ;;
+            11|12|13|16) RUN=06 ;;
             17|18|19) RUN=12 ;;
             23|00|01) RUN=18 ;;
           esac
