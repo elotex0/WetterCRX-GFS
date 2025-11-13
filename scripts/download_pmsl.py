@@ -1,68 +1,27 @@
-import os
-import requests
-import concurrent.futures
-from subprocess import Popen, PIPE
+# scripts/download_pmsl.py
+import os, requests
 
-DATE = os.environ["DATE"]
-RUN = os.environ["RUN"]
+DATE = os.environ.get("DATE")
+RUN = os.environ.get("RUN")
 
 os.makedirs("data/pmsl", exist_ok=True)
 
-FORECASTS = list(range(0, 120)) + list(range(120, 385, 3))
-
-
-def download_and_extract(i):
-    """Streamt GFS direkt in wgrib2 und extrahiert PRMSL ohne Zwischenspeichern."""
+for i in list(range(0, 120)) + list(range(120, 385, 3)):
     i_padded = f"{i:03d}"
-
     url = (
-        f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/"
-        f"gfs.{DATE}/{RUN}/atmos/gfs.t{RUN}z.pgrb2.0p25.f{i_padded}"
+        f"https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
+        f"?dir=%2Fgfs.{DATE}%2F{RUN}%2Fatmos"
+        f"&file=gfs.t{RUN}z.pgrb2.0p25.f{i_padded}"
+        f"&var_PRMSL=on&lev_mean_sea_level=on"
     )
-
-    out_path = f"data/pmsl/pmsl_{i_padded}.grib2"
-
-    if os.path.exists(out_path):
-        return f"⏩ {i_padded}: existiert schon"
-
+    out = f"data/pmsl/pmsl_{i_padded}.grib2"
+    print(f"→ Lade {url}")
     try:
         r = requests.get(url, stream=True, timeout=120)
-        if r.status_code != 200:
-            return f"❌ {i_padded}: nicht vorhanden"
+        r.raise_for_status()
+        with open(out, "wb") as f:
+            for chunk in r.iter_content(8192):
+                f.write(chunk)
+        print(f"✅ Gespeichert: {out}")
     except Exception as e:
-        return f"⚠️ {i_padded}: Download-Fehler {e}"
-
-    # wgrib2-Prozess starten (liest von STDIN!)
-    p = Popen(
-        ["wgrib2", "-", "-match", "PRMSL", "-grib", out_path],
-        stdin=PIPE, stdout=PIPE, stderr=PIPE
-    )
-
-    # Chunk für Chunk direkt in wgrib2 feeden
-    try:
-        for chunk in r.iter_content(1024 * 128):  # 128 KB Blöcke
-            p.stdin.write(chunk)
-        p.stdin.close()
-        p.wait()
-    except Exception as e:
-        return f"⚠️ {i_padded}: Pipe-Fehler {e}"
-
-    # prüfen, ob Datei Inhalt hat
-    if not os.path.exists(out_path) or os.path.getsize(out_path) == 0:
-        if os.path.exists(out_path):
-            os.remove(out_path)
-        return f"⚠️ {i_padded}: Keine PRMSL-Daten"
-
-    return f"✅ {i_padded}: PRMSL gespeichert"
-
-
-if __name__ == "__main__":
-    print("Starte PRMSL-Downloads per Streaming Pipe …")
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as ex:
-        results = ex.map(download_and_extract, FORECASTS)
-
-    for r in results:
-        print(r)
-
-    print("✨ Fertig.")
+        print(f"⚠️ Fehler bei f{i_padded}: {e}")
