@@ -2,11 +2,14 @@ import os
 import time
 import requests
 
-DATE = os.environ.get("DATE", "20251113")  # z.B. "20251113"
-RUN  = os.environ.get("RUN", "00")        # z.B. "00"
+DATE = os.environ.get("DATE")
+RUN  = os.environ.get("RUN")
 
 os.makedirs("data/pmsl", exist_ok=True)
 
+# --------------------------------------------------------
+# Robuster Download mit Retry
+# --------------------------------------------------------
 def download_with_retry(url, out, retries=5, wait=5):
     for attempt in range(1, retries + 1):
         print(f"   Versuch {attempt}/{retries} …")
@@ -15,14 +18,14 @@ def download_with_retry(url, out, retries=5, wait=5):
             r = requests.get(url, stream=True, timeout=120)
             r.raise_for_status()
 
-            # Datei speichern
+            # Datei schreiben
             with open(out, "wb") as f:
                 for chunk in r.iter_content(8192):
                     f.write(chunk)
 
-            # Prüfen ob Datei nicht leer ist
-            if os.path.getsize(out) < 5000:  # 5 KB als Minimum
-                print("   ⚠️ Datei ist verdächtig klein – neuer Versuch …")
+            # GFS liefert manchmal 0–1 KB -> fehlerhaft
+            if os.path.getsize(out) < 5000:
+                print("   ⚠️ Datei verdächtig klein – neuer Versuch …")
                 continue
 
             print(f"   ✅ Erfolgreich gespeichert: {out}")
@@ -33,11 +36,24 @@ def download_with_retry(url, out, retries=5, wait=5):
 
         time.sleep(wait)
 
-    print(f"   ❌ Aufgabe gescheitert nach {retries} Versuchen: {out}")
+    print(f"   ❌ Fehlgeschlagen nach {retries} Versuchen: {out}")
     return False
 
 
-for i in list(range(0, 120)) + list(range(120, 385, 3)):
+# --------------------------------------------------------
+# Liste aller Dateien erzeugen
+# --------------------------------------------------------
+files = list(range(0, 120)) + list(range(120, 385, 3))
+
+failed = []
+
+
+# --------------------------------------------------------
+# ERSTE RUNDE: normal downloaden
+# --------------------------------------------------------
+print("\n🚀 Starte Downloads …\n")
+
+for i in files:
     i_padded = f"{i:03d}"
     url = (
         f"https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
@@ -49,5 +65,34 @@ for i in list(range(0, 120)) + list(range(120, 385, 3)):
 
     print(f"→ Lade {url}")
 
-    download_with_retry(url, out)
-print("✅ Alle Downloads abgeschlossen.")
+    ok = download_with_retry(url, out)
+    if not ok:
+        failed.append((url, out))
+
+# --------------------------------------------------------
+# ZWEITE RUNDE: Nochmals probieren
+# --------------------------------------------------------
+if failed:
+    print("\n🔄 Zweiter Versuch für fehlgeschlagene Dateien …\n")
+    retry_fail = []
+
+    for url, out in failed:
+        print(f"→ Zweiter Versuch für {out}")
+        ok = download_with_retry(url, out)
+        if not ok:
+            retry_fail.append((url, out))
+
+    failed = retry_fail
+
+
+# --------------------------------------------------------
+# ENDERGEBNIS
+# --------------------------------------------------------
+print("\n---------------------------------------------")
+if failed:
+    print("❌ Manche Dateien konnten NICHT geladen werden:")
+    for _, out in failed:
+        print("    -", out)
+else:
+    print("✅ Alle Downloads erfolgreich!")
+print("---------------------------------------------\n")
