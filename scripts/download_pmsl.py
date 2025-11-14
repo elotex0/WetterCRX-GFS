@@ -1,98 +1,95 @@
 import os
-import time
 import requests
+import re
+import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DATE = os.environ.get("DATE")
-RUN  = os.environ.get("RUN")
+RUN = os.environ.get("RUN")
 
 os.makedirs("data/pmsl", exist_ok=True)
 
-# --------------------------------------------------------
-# Robuster Download mit Retry
-# --------------------------------------------------------
-def download_with_retry(url, out, retries=5, wait=5):
-    for attempt in range(1, retries + 1):
-        print(f"   Versuch {attempt}/{retries} …")
+FIELD_REGEX = r":\s*PRMSL:mean sea level"
+MAX_WORKERS = 6  # Anzahl paralleler Downloads (anpassbar)
+RETRY_LIMIT = 3  # erneute Versuche falls Fehler
 
+
+def fetch_pmsl(fh):
+    fh_padded = f"{fh:03d}"
+
+    base = f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{DATE}/{RUN}/atmos"
+    idx_url = f"{base}/gfs.t{RUN}z.pgrb2.0p25.f{fh_padded}.idx"
+    grib_url = f"{base}/gfs.t{RUN}z.pgrb2.0p25.f{fh_padded}"
+
+    out = f"data/pmsl/pmsl_{fh_padded}.grib2"
+
+    for attempt in range(1, RETRY_LIMIT + 1):
         try:
-            r = requests.get(url, stream=True, timeout=120)
-            r.raise_for_status()
+            print(f"📥 [{fh_padded}] Index laden…")
+            r = requests.get(idx_url, timeout=20)
+            if r.status_code != 200:
+                return f"⚠️ [{fh_padded}] idx fehlt → übersprungen"
+            idx_data = r.text.splitlines()
 
-            # Datei schreiben
+            all_offsets = []
+            prmsl_offsets = []
+
+            for line in idx_data:
+                if ":" not in line:
+                    continue
+                parts = line.split(":")
+                if len(parts) < 3 or not parts[1].isdigit():
+                    continue
+
+                offset = int(parts[1])
+                all_offsets.append(offset)
+
+                if re.search(FIELD_REGEX, line):
+                    prmsl_offsets.append(offset)
+
+            if not prmsl_offsets:
+                return f"⚠️ [{fh_padded}] Kein PRMSL gefunden"
+
+            head = requests.head(grib_url, timeout=10)
+            filesize = int(head.headers.get("Content-Length", 0))
+
+            ranges = []
+            for start in prmsl_offsets:
+                nxt = [o for o in all_offsets if o > start]
+                end = min(nxt) - 1 if nxt else filesize - 1
+                ranges.append((start, end))
+
+            print(f"→ [{fh_padded}] {len(ranges)} Felder → Download…")
+
             with open(out, "wb") as f:
-                for chunk in r.iter_content(8192):
-                    f.write(chunk)
+                for start, end in ranges:
+                    headers = {"Range": f"bytes={start}-{end}"}
+                    rr = requests.get(grib_url, headers=headers, stream=True, timeout=60)
+                    rr.raise_for_status()
+                    for chunk in rr.iter_content(chunk_size=65536):
+                        if chunk:
+                            f.write(chunk)
 
-            # GFS liefert manchmal 0–1 KB -> fehlerhaft
-            if os.path.getsize(out) < 5000:
-                print("   ⚠️ Datei verdächtig klein – neuer Versuch …")
-                continue
-
-            print(f"   ✅ Erfolgreich gespeichert: {out}")
-            return True
+            return f"✔ [{fh_padded}] Gespeichert"
 
         except Exception as e:
-            print(f"   ⚠️ Fehler: {e}")
+            print(f"❌ [{fh_padded}] Fehler (Versuch {attempt}/{RETRY_LIMIT}): {e}")
+            time.sleep(5 * attempt)
 
-        time.sleep(wait)
-
-    print(f"   ❌ Fehlgeschlagen nach {retries} Versuchen: {out}")
-    return False
+    return f"💥 [{fh_padded}] endgültig fehlgeschlagen"
 
 
-# --------------------------------------------------------
-# Liste aller Dateien erzeugen
-# --------------------------------------------------------
-files = list(range(0, 120)) + list(range(120, 385, 3))
+# Forecast-Stunden: 0–120 alle 1h, danach 3h-Raster
+forecast_hours = list(range(0, 121)) + list(range(123, 385, 3))
 
-failed = []
+print(f"🚀 Starte parallele AWS-Downloads ({MAX_WORKERS} Worker)…")
 
+tasks = []
+with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+    for fh in forecast_hours:
+        tasks.append(executor.submit(fetch_pmsl, fh))
 
-# --------------------------------------------------------
-# ERSTE RUNDE: normal downloaden
-# --------------------------------------------------------
-print("\n🚀 Starte Downloads …\n")
+    for future in as_completed(tasks):
+        print(future.result())
 
-for i in files:
-    i_padded = f"{i:03d}"
-    url = (
-        f"https://nomads.ncep.noaa.gov/cgi-bin/filter_gfs_0p25.pl"
-        f"?dir=%2Fgfs.{DATE}%2F{RUN}%2Fatmos"
-        f"&file=gfs.t{RUN}z.pgrb2.0p25.f{i_padded}"
-        f"&var_PRMSL=on&lev_mean_sea_level=on"
-    )
-    out = f"data/pmsl/pmsl_{i_padded}.grib2"
-
-    print(f"→ Lade {url}")
-
-    ok = download_with_retry(url, out)
-    if not ok:
-        failed.append((url, out))
-
-# --------------------------------------------------------
-# ZWEITE RUNDE: Nochmals probieren
-# --------------------------------------------------------
-if failed:
-    print("\n🔄 Zweiter Versuch für fehlgeschlagene Dateien …\n")
-    retry_fail = []
-
-    for url, out in failed:
-        print(f"→ Zweiter Versuch für {out}")
-        ok = download_with_retry(url, out)
-        if not ok:
-            retry_fail.append((url, out))
-
-    failed = retry_fail
-
-
-# --------------------------------------------------------
-# ENDERGEBNIS
-# --------------------------------------------------------
-print("\n---------------------------------------------")
-if failed:
-    print("❌ Manche Dateien konnten NICHT geladen werden:")
-    for _, out in failed:
-        print("    -", out)
-else:
-    print("✅ Alle Downloads erfolgreich!")
-print("---------------------------------------------\n")
+print("\n🎉 COMPLETED: PRMSL-Downloads abgeschlossen!")
