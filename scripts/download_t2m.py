@@ -1,6 +1,7 @@
 import os
 import requests
 import re
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 DATE = os.environ.get("DATE")
@@ -8,70 +9,87 @@ RUN = os.environ.get("RUN")
 
 os.makedirs("data/t2m", exist_ok=True)
 
-FIELD_REGEX = r":TMP:2 m above ground:"
-MAX_WORKERS = 6  # Anzahl paralleler Downloads (bei Bedarf anpassen)
+FIELD_REGEX = r":\s*T2M:2 m above ground"
+MAX_WORKERS = 6  # Anzahl paralleler Downloads (anpassbar)
+RETRY_LIMIT = 3  # erneute Versuche falls Fehler
 
 
-def fetch_tmp_field(fh):
+def fetch_t2m(fh):
     fh_padded = f"{fh:03d}"
-    base = f"https://nomads.ncep.noaa.gov/pub/data/nccf/com/gfs/prod/gfs.{DATE}/{RUN}/atmos"
 
+    base = f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{DATE}/{RUN}/atmos"
     idx_url = f"{base}/gfs.t{RUN}z.pgrb2.0p25.f{fh_padded}.idx"
     grib_url = f"{base}/gfs.t{RUN}z.pgrb2.0p25.f{fh_padded}"
+
     out = f"data/t2m/t2m_{fh_padded}.grib2"
 
-    try:
-        print(f"📥 [{fh_padded}] Lade Index …")
-        r = requests.get(idx_url, timeout=60)
-        r.raise_for_status()
-        idx_data = r.text.splitlines()
+    for attempt in range(1, RETRY_LIMIT + 1):
+        try:
+            print(f"📥 [{fh_padded}] Index laden…")
+            r = requests.get(idx_url, timeout=20)
+            if r.status_code != 200:
+                return f"⚠️ [{fh_padded}] idx fehlt → übersprungen"
+            idx_data = r.text.splitlines()
 
-        all_offsets = []
-        tmp_offsets = []
-        for line in idx_data:
-            parts = line.split(":")
-            offset = int(parts[1])
-            all_offsets.append(offset)
-            if re.search(FIELD_REGEX, line):
-                tmp_offsets.append(offset)
+            all_offsets = []
+            t2m_offsets = []
 
-        if not tmp_offsets:
-            return f"⚠ Keine TMP-Felder in f{fh_padded}"
+            for line in idx_data:
+                if ":" not in line:
+                    continue
+                parts = line.split(":")
+                if len(parts) < 3 or not parts[1].isdigit():
+                    continue
 
-        head = requests.head(grib_url)
-        filesize = int(head.headers["Content-Length"])
+                offset = int(parts[1])
+                all_offsets.append(offset)
 
-        ranges = []
-        for start in tmp_offsets:
-            candidates = [o for o in all_offsets if o > start]
-            end = min(candidates) - 1 if candidates else filesize - 1
-            ranges.append((start, end))
+                if re.search(FIELD_REGEX, line):
+                    t2m_offsets.append(offset)
 
-        print(f"→ [{fh_padded}] {len(ranges)} Felder → Download …")
+            if not t2m_offsets:
+                return f"⚠️ [{fh_padded}] Kein T2M gefunden"
 
-        with open(out, "wb") as f:
-            for start, end in ranges:
-                headers = {"Range": f"bytes={start}-{end}"}
-                rr = requests.get(grib_url, headers=headers, stream=True, timeout=120)
-                rr.raise_for_status()
-                for chunk in rr.iter_content(chunk_size=8192):
-                    if chunk:
-                        f.write(chunk)
+            head = requests.head(grib_url, timeout=10)
+            filesize = int(head.headers.get("Content-Length", 0))
 
-        return f"✔ Fertig f{fh_padded}"
+            ranges = []
+            for start in t2m_offsets:
+                nxt = [o for o in all_offsets if o > start]
+                end = min(nxt) - 1 if nxt else filesize - 1
+                ranges.append((start, end))
 
-    except Exception as e:
-        return f"❌ Fehler f{fh_padded}: {e}"
+            print(f"→ [{fh_padded}] {len(ranges)} Felder → Download…")
+
+            with open(out, "wb") as f:
+                for start, end in ranges:
+                    headers = {"Range": f"bytes={start}-{end}"}
+                    rr = requests.get(grib_url, headers=headers, stream=True, timeout=60)
+                    rr.raise_for_status()
+                    for chunk in rr.iter_content(chunk_size=65536):
+                        if chunk:
+                            f.write(chunk)
+
+            return f"✔ [{fh_padded}] Gespeichert"
+
+        except Exception as e:
+            print(f"❌ [{fh_padded}] Fehler (Versuch {attempt}/{RETRY_LIMIT}): {e}")
+            time.sleep(5 * attempt)
+
+    return f"💥 [{fh_padded}] endgültig fehlgeschlagen"
 
 
+# Forecast-Stunden: 0–120 alle 1h, danach 3h-Raster
 forecast_hours = list(range(0, 121)) + list(range(123, 385, 3))
 
-print("🚀 Starte parallele Downloads …")
+print(f"🚀 Starte parallele AWS-Downloads ({MAX_WORKERS} Worker)…")
 
+tasks = []
 with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-    tasks = {executor.submit(fetch_tmp_field, fh): fh for fh in forecast_hours}
+    for fh in forecast_hours:
+        tasks.append(executor.submit(fetch_t2m, fh))
 
     for future in as_completed(tasks):
         print(future.result())
 
-print("\n🎉 ALLE Downloads fertig!")
+print("\n🎉 COMPLETED: T2M-Downloads abgeschlossen!")
