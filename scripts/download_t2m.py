@@ -9,7 +9,7 @@ RUN = os.environ.get("RUN")
 
 os.makedirs("data/t2m", exist_ok=True)
 
-FIELD_REGEX = r":\s*T2M:2 m above ground"
+FIELD_REGEX = r":\s*TMP:2 m above ground"
 MAX_WORKERS = 6  # Anzahl paralleler Downloads (anpassbar)
 RETRY_LIMIT = 3  # erneute Versuche falls Fehler
 
@@ -48,7 +48,7 @@ def fetch_t2m(fh):
                     t2m_offsets.append(offset)
 
             if not t2m_offsets:
-                return f"⚠️ [{fh_padded}] Kein T2M gefunden"
+                return f"⚠️ [{fh_padded}] Kein t2m gefunden"
 
             head = requests.head(grib_url, timeout=10)
             filesize = int(head.headers.get("Content-Length", 0))
