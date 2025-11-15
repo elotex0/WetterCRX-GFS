@@ -38,14 +38,8 @@ jobs:
       - name: Set RUN and DATE
         id: set_run_date
         run: |
-          HOUR=$(date -u +%H)
-          case $HOUR in
-            05|06|07) RUN=00 ;;
-            11|12|13|16) RUN=06 ;;
-            17|18|19) RUN=12 ;;
-            23|00|01) RUN=18 ;;
-          esac
-          DATE=$(date -u +%Y%m%d)
+          DATE=20251114
+          RUN=18
           echo "RUN=$RUN" >> $GITHUB_ENV
           echo "DATE=$DATE" >> $GITHUB_ENV
           echo "run=$RUN" >> $GITHUB_OUTPUT
@@ -53,7 +47,6 @@ jobs:
 
       - name: Download GFS GRIB2 data via Python filters
         run: |
-          pip install requests
           export DATE=${{ env.DATE }}
           export RUN=${{ env.RUN }}
       
