@@ -59,7 +59,7 @@ jobs:
       
           echo "🔹 Starte Python-Downloads für GFS (DATE=$DATE, RUN=$RUN)"
           python scripts/download_t2m.py
-          python scripts/download_wind.py
+          python scripts/download_geo.py
           python scripts/download_pmsl.py
       
           echo "✅ Alle Variablen wurden erfolgreich geladen!"
@@ -82,8 +82,8 @@ jobs:
     needs: fetch_and_generate
     strategy:
       matrix:
-        variable: [t2m, wind, pmsl, pmsl_eu]
-      max-parallel: 4
+        variable: [t2m, t2m, pmsl, pmsl_eu, geo, geo_eu]
+      max-parallel: 6
       
     steps:
       - name: Checkout Repo
@@ -107,8 +107,12 @@ jobs:
         run: |
           mkdir -p iconeu/${{ matrix.variable }}
           input_dir="data/${{ matrix.variable }}"
-          if [ "${{ matrix.variable }}" = "pmsl_eu" ]; then
+          if [ "${{ matrix.variable }}" = "t2m_eu" ]; then
+            input_dir="data/t2m"
+          elif [ "${{ matrix.variable }}" = "pmsl_eu" ]; then
             input_dir="data/pmsl"
+          elif [ "${{ matrix.variable }}" = "geo_eu" ]; then
+            input_dir="data/geo"
           fi
           python scripts/generate_pngs.py \
             "$input_dir" \
