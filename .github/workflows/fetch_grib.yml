@@ -75,7 +75,7 @@ jobs:
     needs: fetch_and_generate
     strategy:
       matrix:
-        variable: [t2m, t2m, pmsl, pmsl_eu, geo, geo_eu]
+        variable: [t2m, t2m_eu, pmsl, pmsl_eu, geo, geo_eu]
       max-parallel: 6
       
     steps:
