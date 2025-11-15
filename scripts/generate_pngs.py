@@ -366,11 +366,11 @@ for filename in sorted(os.listdir(data_dir)):
             ax.text(
                 lon_minpt, lat_minpt,
                 f"{min_val:.0f}",
-                color='blue', fontsize=12, fontweight='bold',
+                color='white', fontsize=12, fontweight='bold',
                 ha='center', va='center',
                 transform=ccrs.PlateCarree(),
                 clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=2, foreground='white')]
+                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
             )
 
         # Hochdruckzentrum (roter Wert)
@@ -379,11 +379,11 @@ for filename in sorted(os.listdir(data_dir)):
             ax.text(
                 lon_maxpt, lat_maxpt,
                 f"{max_val:.0f}",
-                color='red', fontsize=12, fontweight='bold',
+                color='white', fontsize=12, fontweight='bold',
                 ha='center', va='center',
                 transform=ccrs.PlateCarree(),
                 clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=2, foreground='white')]
+                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
             )
 
 
@@ -407,18 +407,18 @@ for filename in sorted(os.listdir(data_dir)):
 
             ax.text(
                 lon[min_idx[1]], lat[min_idx[0]],
-                f"T\n{data_hpa[min_idx]:.0f}",
-                color='blue', fontsize=11, fontweight='bold',
+                f"{data_hpa[min_idx]:.0f}",
+                color='white', fontsize=11, fontweight='bold',
                 ha='center', va='center',
-                path_effects=[path_effects.withStroke(linewidth=2, foreground='white')]
+                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
             )
 
             ax.text(
                 lon[max_idx[1]], lat[max_idx[0]],
-                f"H\n{data_hpa[max_idx]:.0f}",
-                color='red', fontsize=11, fontweight='bold',
+                f"{data_hpa[max_idx]:.0f}",
+                color='white', fontsize=11, fontweight='bold',
                 ha='center', va='center',
-                path_effects=[path_effects.withStroke(linewidth=2, foreground='white')]
+                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
             )
     elif var_type == "geo":
             im = ax.pcolormesh(lon, lat, data, cmap=geo_colors, norm=geo_norm, shading="auto")
@@ -428,7 +428,7 @@ for filename in sorted(os.listdir(data_dir)):
                             colors='white', linewidths=0.8, alpha=0.9)
             ax.clabel(cs, inline=True, fmt='%d', fontsize=9, colors='black')
 
-            low_levels = list(range(4800, 6000, 10))
+            low_levels = list(range(4800, 6000, 20))
             ax.contour(lon, lat, data_geo, levels=low_levels,
                             colors='gray', linewidths=0.5, alpha=0.4)
 
@@ -453,7 +453,7 @@ for filename in sorted(os.listdir(data_dir)):
                 ha='center', va='center',
                 transform=ccrs.PlateCarree(),
                 clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=2, foreground='black')]
+                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
             )
 
     elif var_type == "geo_eu":
@@ -464,7 +464,7 @@ for filename in sorted(os.listdir(data_dir)):
                             colors='white', linewidths=0.8, alpha=0.9)
             ax.clabel(cs, inline=True, fmt='%d', fontsize=9, colors='black')
 
-            low_levels = list(range(4800, 6000, 10))
+            low_levels = list(range(4800, 6000, 20))
             ax.contour(lon, lat, data_geo, levels=low_levels,
                             colors='gray', linewidths=0.5, alpha=0.4)
 
