@@ -32,7 +32,7 @@ def fetch_pmsl(fh):
             idx_data = r.text.splitlines()
 
             all_offsets = []
-            prmsl_offsets = []
+            pmsl_offsets = []
 
             for line in idx_data:
                 if ":" not in line:
@@ -45,16 +45,16 @@ def fetch_pmsl(fh):
                 all_offsets.append(offset)
 
                 if re.search(FIELD_REGEX, line):
-                    prmsl_offsets.append(offset)
+                    pmsl_offsets.append(offset)
 
-            if not prmsl_offsets:
-                return f"⚠️ [{fh_padded}] Kein PRMSL gefunden"
+            if not pmsl_offsets:
+                return f"⚠️ [{fh_padded}] Kein pmsl gefunden"
 
             head = requests.head(grib_url, timeout=10)
             filesize = int(head.headers.get("Content-Length", 0))
 
             ranges = []
-            for start in prmsl_offsets:
+            for start in pmsl_offsets:
                 nxt = [o for o in all_offsets if o > start]
                 end = min(nxt) - 1 if nxt else filesize - 1
                 ranges.append((start, end))
@@ -92,4 +92,4 @@ with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
     for future in as_completed(tasks):
         print(future.result())
 
-print("\n🎉 COMPLETED: PRMSL-Downloads abgeschlossen!")
+print("\n🎉 COMPLETED: PMSL-Downloads abgeschlossen!")
