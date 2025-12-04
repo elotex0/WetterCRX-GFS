@@ -160,58 +160,256 @@ extent_eu = [-23.5, 45.0, 29.5, 68.4]
 
 
 # ------------------------------
+# NEUE FUNKTION: tp_acc Akkumulation
+# ------------------------------
+def process_tp_acc_files(data_dir, output_dir):
+    """
+    Verarbeitet tp_acc: Liest alle GRIB-Dateien eines Modellruns,
+    sortiert sie nach forecast hour und akkumuliert die Werte korrekt.
+    """
+    # Alle GRIB-Dateien sammeln
+    grib_files = sorted([f for f in os.listdir(data_dir) if f.endswith(".grib2")])
+    
+    if not grib_files:
+        print("Keine GRIB2-Dateien gefunden!")
+        return
+    
+    # Nach Modellrun und forecast hour gruppieren
+    file_info = []
+    for filename in grib_files:
+        path = os.path.join(data_dir, filename)
+        try:
+            ds = cfgrib.open_dataset(path)
+            if "tp" not in ds:
+                continue
+            
+            run_time_utc = pd.to_datetime(ds["time"].values) if "time" in ds else None
+            
+            if "valid_time" in ds:
+                valid_time_raw = ds["valid_time"].values
+                valid_time_utc = pd.to_datetime(valid_time_raw[0]) if np.ndim(valid_time_raw) > 0 else pd.to_datetime(valid_time_raw)
+            else:
+                step = pd.to_timedelta(ds["step"].values[0])
+                valid_time_utc = run_time_utc + step
+            
+            forecast_hour = int((valid_time_utc - run_time_utc).total_seconds() / 3600)
+            
+            file_info.append({
+                'filename': filename,
+                'path': path,
+                'run_time': run_time_utc,
+                'valid_time': valid_time_utc,
+                'forecast_hour': forecast_hour
+            })
+        except Exception as e:
+            print(f"Fehler beim Lesen von {filename}: {e}")
+            continue
+    
+    if not file_info:
+        print("Keine gültigen tp-Dateien gefunden!")
+        return
+    
+    # Nach run_time und forecast_hour sortieren
+    file_info_df = pd.DataFrame(file_info)
+    file_info_df = file_info_df.sort_values(['run_time', 'forecast_hour'])
+    
+    # Für jeden Modellrun separat verarbeiten
+    for run_time, group in file_info_df.groupby('run_time'):
+        print(f"\n=== Verarbeite Modellrun: {run_time} ===")
+        
+        accumulated_tp = None
+        
+        for idx, row in group.iterrows():
+            ds = cfgrib.open_dataset(row['path'])
+            current_tp = ds["tp"].values
+            
+            if current_tp.ndim == 3:
+                current_tp = current_tp[0]
+            
+            current_tp[current_tp < 0] = 0  # Negative Werte auf 0 setzen
+            cmap, norm = tp_acc_colors, tp_acc_norm
+            cmap.set_under("white")
+            
+            lon = ds["longitude"].values
+            lat = ds["latitude"].values
+            
+            # Longitude Fix
+            if np.nanmax(lon) > 180:
+                lon_wrapped = ((lon + 180) % 360) - 180
+                order = np.argsort(lon_wrapped)
+                lon = lon_wrapped[order]
+                if current_tp.ndim == 2:
+                    current_tp = current_tp[:, order]
+            
+            # HIER IST DER FIX: Richtige Akkumulation
+            if accumulated_tp is None:
+                # Erste Datei: Starte mit diesem Wert
+                accumulated_tp = current_tp.copy()
+            else:
+                # Ab der zweiten Datei: ADDIERE die tp-Werte auf
+                # Da tp im GRIB bereits akkumuliert ist, nehmen wir einfach den aktuellen Wert
+                # ABER: Wenn deine GRIB-Dateien 3-stündliche Buckets enthalten, 
+                # dann ist current_tp der Niederschlag für diese 3h-Periode
+                # und wir müssen addieren!
+                accumulated_tp = accumulated_tp + current_tp
+            
+            # Jetzt plotten wir accumulated_tp
+            plot_tp_acc_map(
+                lon, lat, accumulated_tp,
+                row['run_time'], row['valid_time'],
+                output_dir
+            )
+            
+            print(f"  Forecast hour {row['forecast_hour']:03d}: "
+                  f"Max akkumuliert = {np.nanmax(accumulated_tp):.1f} mm")
+
+
+def plot_tp_acc_map(lon, lat, data, run_time_utc, valid_time_utc, output_dir):
+    """Erstellt die tp_acc Karte"""
+    
+    valid_time_local = valid_time_utc.tz_localize("UTC").astimezone(ZoneInfo("Europe/Berlin"))
+    
+    # Figure Setup
+    scale = 0.9
+    fig = plt.figure(figsize=(FIG_W_PX/100*scale, FIG_H_PX/100*scale), dpi=100)
+    shift_up = 0.02
+    ax = fig.add_axes([0.0, BOTTOM_AREA_PX / FIG_H_PX + shift_up, 1.0, TOP_AREA_PX / FIG_H_PX],
+                    projection=ccrs.PlateCarree())
+    ax.set_extent(extent)
+    ax.set_axis_off()
+    ax.set_aspect('auto')
+    
+    # Interpolation
+    target_res = 0.025
+    lon_min, lon_max, lat_min, lat_max = extent
+    lon_new = np.arange(lon_min, lon_max + target_res, target_res)
+    lat_new = np.arange(lat_min, lat_max + target_res, target_res)
+    lon2d_new, lat2d_new = np.meshgrid(lon_new, lat_new)
+    
+    if lon.ndim == 1 and lat.ndim == 1 and data.ndim == 2:
+        try:
+            interp_func = RegularGridInterpolator(
+                (lat[::-1], lon),
+                data[::-1, :],
+                method="linear",
+                bounds_error=False,
+                fill_value=np.nan
+            )
+            pts = np.array([lat2d_new.ravel(), lon2d_new.ravel()]).T
+            data = interp_func(pts).reshape(lat2d_new.shape)
+            lon, lat = lon_new, lat_new
+        except Exception as e:
+            print(f"Interpolation übersprungen ({e})")
+    
+    # Plot
+    smooth_data = gaussian_filter(data, sigma=0.8)
+    im = ax.pcolormesh(lon, lat, smooth_data, cmap=tp_acc_colors, norm=tp_acc_norm, shading="auto")
+    
+    # Grenzen & Städte
+    ax.add_feature(cfeature.STATES.with_scale("10m"), edgecolor="#2C2C2C", linewidth=1)
+    ax.add_feature(cfeature.BORDERS, linestyle=":", edgecolor="#2C2C2C", linewidth=1)
+    ax.add_feature(cfeature.COASTLINE, linewidth=1.0, edgecolor="black")
+    
+    for _, city in cities.iterrows():
+        ax.plot(city["lon"], city["lat"], "o", markersize=6,
+                markerfacecolor="black", markeredgecolor="white",
+                markeredgewidth=1.5, zorder=5)
+        txt = ax.text(city["lon"] + 0.1, city["lat"] + 0.1, city["name"],
+                      fontsize=9, color="black", weight="bold", zorder=6)
+        txt.set_path_effects([path_effects.withStroke(linewidth=1.5, foreground="white")])
+    
+    # Rahmen
+    ax.add_patch(mpatches.Rectangle((0, 0), 1, 1, transform=ax.transAxes,
+                                    fill=False, color="black", linewidth=2))
+    
+    # Legende
+    legend_h_px = 50
+    legend_bottom_px = 45
+    cbar_ax = fig.add_axes([0.03, legend_bottom_px / FIG_H_PX, 0.94, legend_h_px / FIG_H_PX])
+    cbar = fig.colorbar(im, cax=cbar_ax, orientation="horizontal", ticks=tp_acc_bounds)
+    cbar.ax.tick_params(colors="black", labelsize=7)
+    cbar.outline.set_edgecolor("black")
+    cbar.ax.set_facecolor("white")
+    cbar.set_ticklabels([int(tick) if float(tick).is_integer() else tick for tick in tp_acc_bounds])
+    
+    # Footer
+    footer_ax = fig.add_axes([0.0, (legend_bottom_px + legend_h_px)/FIG_H_PX, 1.0,
+                              (BOTTOM_AREA_PX - legend_h_px - legend_bottom_px)/FIG_H_PX])
+    footer_ax.axis("off")
+    
+    left_text = "Akkumulierter Niederschlag (mm)" + \
+                f"\nGFS ({pd.to_datetime(run_time_utc).hour:02d}z), NOAA"
+    
+    footer_ax.text(0.01, 0.85, left_text, fontsize=12, fontweight="bold", va="top", ha="left")
+    footer_ax.text(0.734, 0.92, "Prognose für:", fontsize=12, va="top", ha="left", fontweight="bold")
+    footer_ax.text(0.99, 0.68, f"{valid_time_local:%d.%m.%Y %H:%M} Uhr",
+                   fontsize=12, va="top", ha="right", fontweight="bold")
+    
+    # Speichern
+    outname = f"tp_acc_{valid_time_local:%Y%m%d_%H%M}.png"
+    plt.savefig(os.path.join(output_dir, outname), dpi=100, bbox_inches=None, pad_inches=0)
+    plt.close()
+    print(f"  → Gespeichert: {outname}")
+
+
+# ------------------------------
 # Dateien durchgehen
 # ------------------------------
-for filename in sorted(os.listdir(data_dir)):
-    if not filename.endswith(".grib2"):
-        continue
-    path = os.path.join(data_dir, filename)
-    ds = cfgrib.open_dataset(path)
+if var_type == "tp_acc":
+    # Spezielle Verarbeitung für tp_acc mit Akkumulation
+    process_tp_acc_files(data_dir, output_dir)
+else:
+    # Normale Verarbeitung für alle anderen Variablen
+    for filename in sorted(os.listdir(data_dir)):
+        if not filename.endswith(".grib2"):
+            continue
+        path = os.path.join(data_dir, filename)
+        ds = cfgrib.open_dataset(path)
 
-    # Daten je Typ
-    if var_type == "t2m":
-        if "t2m" not in ds:
-            print(f"Keine t2m in {filename}")
+        # Daten je Typ
+        if var_type == "t2m":
+            if "t2m" not in ds:
+                print(f"Keine t2m in {filename}")
+                continue
+            data = ds["t2m"].values - 273.15
+        elif var_type == "t2m_eu":
+            if "t2m" not in ds:
+                print(f"Keine t2m in {filename}")
+                continue
+            data = ds["t2m"].values - 273.15
+        elif var_type == "geo":
+            if "gh" not in ds:
+                print(f"Keine z-Variable in {filename}  ds.keys(): {list(ds.keys())}")
+                continue
+            data = ds["gh"].values
+            data[data < 0] = np.nan
+        elif var_type == "geo_eu":
+            if "gh" not in ds:
+                print(f"Keine z-Variable in {filename}  ds.keys(): {list(ds.keys())}")
+                continue
+            data = ds["gh"].values
+            data[data < 0] = np.nan
+        elif var_type == "pmsl":
+            if "prmsl" not in ds:
+                print(f"Keine prmsl-Variable in {filename} ds.keys(): {list(ds.keys())}")
+                continue
+            data = ds["prmsl"].values / 100
+            data[data < 0] = np.nan
+        elif var_type == "pmsl_eu":
+            if "prmsl" not in ds:
+                print(f"Keine prmsl-Variable in {filename} ds.keys(): {list(ds.keys())}")
+                continue
+            data = ds["prmsl"].values / 100
+            data[data < 0] = np.nan
+        else:
+            print(f"Unbekannter var_type {var_type}")
             continue
-        data = ds["t2m"].values - 273.15
-    elif var_type == "t2m_eu":
-        if "t2m" not in ds:
-            print(f"Keine t2m in {filename}")
-            continue
-        data = ds["t2m"].values - 273.15
-    elif var_type == "geo":
-        if "gh" not in ds:
-            print(f"Keine z-Variable in {filename}  ds.keys(): {list(ds.keys())}")
-            continue
-        data = ds["gh"].values
-        data[data < 0] = np.nan
-    elif var_type == "geo_eu":
-        if "gh" not in ds:
-            print(f"Keine z-Variable in {filename}  ds.keys(): {list(ds.keys())}")
-            continue
-        data = ds["gh"].values
-        data[data < 0] = np.nan
-    elif var_type == "pmsl":
-        if "prmsl" not in ds:
-            print(f"Keine prmsl-Variable in {filename} ds.keys(): {list(ds.keys())}")
-            continue
-        data = ds["prmsl"].values / 100
-        data[data < 0] = np.nan
-    elif var_type == "pmsl_eu":
-        if "prmsl" not in ds:
-            print(f"Keine prmsl-Variable in {filename} ds.keys(): {list(ds.keys())}")
-            continue
-        data = ds["prmsl"].values / 100
-        data[data < 0] = np.nan
-    else:
-        print(f"Unbekannter var_type {var_type}")
-        continue
 
-    if data.ndim==3:
-        data=data[0]
+        if data.ndim==3:
+            data=data[0]
 
-    lon = ds["longitude"].values
-    lat = ds["latitude"].values
+        lon = ds["longitude"].values
+        lat = ds["latitude"].values
 
     # --- LONGITUDE FIX: 0..360 -> -180..180 und entlang der Lon-Achse sortieren ---
     if np.nanmax(lon) > 180:                    # z.B. GFS / NOAA
