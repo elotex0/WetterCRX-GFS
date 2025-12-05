@@ -143,6 +143,18 @@ geo_colors = LinearSegmentedColormap.from_list(
 )
 geo_norm = BoundaryNorm(geo_bounds, ncolors=len(geo_bounds))
 
+#-------------------------------
+# Schneehöhen-Farben
+#------------------------------
+snow_bounds = [0, 0.5, 1, 2, 3, 4, 5, 7, 10, 15, 20, 30, 40, 50, 60, 70, 80, 100, 150, 200, 250, 300, 400]  # in cm
+snow_colors = ListedColormap([
+        "#F8F8F8", "#DCDBFA", "#AAA9C8", "#75BAFF", "#349AFF", "#0682FF",
+        "#0069D2", "#004F9C", "#01327F", "#4B007F", "#64007F", "#9101BB",
+        "#C300FC", "#D235FF", "#EBA6FF", "#F4CEFF", "#FAB2CA", "#FF9798",
+        "#FE6E6E", "#DF093F", "#BE0000", "#A40000", "#880000"
+    ])
+snow_norm = mcolors.BoundaryNorm(snow_bounds, snow_colors.N, clip=True)
+
 
 
 # ------------------------------
@@ -394,6 +406,18 @@ else:
                 continue
             data = ds["prmsl"].values / 100
             data[data < 0] = np.nan
+        elif var_type == "snow":
+            if "sde" not in ds:
+                print(f"Keine sde-Variable in {filename} ds.keys(): {list(ds.keys())}")
+                continue
+            data = ds["sde"].values * 100
+            data[data < 0] = 0
+        elif var_type == "snow_eu":
+            if "sde" not in ds:
+                print(f"Keine sde-Variable in {filename} ds.keys(): {list(ds.keys())}")
+                continue
+            data = ds["sde"].values * 100
+            data[data < 0] = 0
         else:
             print(f"Unbekannter var_type {var_type}")
             continue
@@ -429,7 +453,7 @@ else:
         # --------------------------
         # Figure (Deutschland oder Europa)
         # --------------------------
-        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
+        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu", "snow_eu"]:
             scale = 0.9
             fig = plt.figure(figsize=(FIG_W_PX/100*scale, FIG_H_PX/100*scale), dpi=100)
             shift_up = 0.02
@@ -452,7 +476,7 @@ else:
             ax.set_aspect('auto')
 
 
-        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
+        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu", "snow_eu"]:
             target_res = 0.13   # gröber für Europa (~11 km)
             lon_min, lon_max, lat_min, lat_max = extent_eu
             buffer = target_res * 20  # Puffer für Interpolation
@@ -512,6 +536,12 @@ else:
         elif var_type == "t2m_eu":
             smooth_data = gaussian_filter(data, sigma=0.8)
             im = ax.pcolormesh(lon, lat, smooth_data, cmap=t2m_colors, norm=t2m_norm, shading="auto")
+        elif var_type == "snow":
+            smooth_data = gaussian_filter(np.nan_to_num(data, nan=0.0), sigma=0.8)
+            im = ax.pcolormesh(lon, lat, smooth_data, cmap=snow_colors, norm=snow_norm, shading="auto")
+        elif var_type == "snow_eu":
+            smooth_data = gaussian_filter(np.nan_to_num(data, nan=0.0), sigma=0.8)
+            im = ax.pcolormesh(lon, lat, smooth_data, cmap=snow_colors, norm=snow_norm, shading="auto")
         elif var_type == "pmsl":
             # --- Luftdruck auf Meereshöhe (Deutschland) ---
             im = ax.pcolormesh(lon, lat, data, cmap=pmsl_colors, norm=pmsl_norm, shading="auto")
@@ -687,7 +717,7 @@ else:
         # Grenzen & Städte
         # ------------------------------
 
-        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
+        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu", "snow_eu"]:
             # 🌍 Europa: nur Ländergrenzen + europäische Städte
             ax.add_feature(cfeature.BORDERS.with_scale("10m"), edgecolor="black", linewidth=0.7)
             ax.add_feature(cfeature.COASTLINE.with_scale("10m"), edgecolor="black", linewidth=0.7)
@@ -722,8 +752,8 @@ else:
         # Legende
         legend_h_px = 50
         legend_bottom_px = 45
-        if var_type in ["t2m", "pmsl", "pmsl_eu", "t2m_eu", "geo", "geo_eu"]:
-            bounds = t2m_bounds if var_type=="t2m" else pmsl_bounds_colors if var_type=="pmsl" else pmsl_bounds_colors if var_type=="pmsl_eu" else t2m_bounds if var_type=="t2m_eu" else geo_bounds if var_type=="geo" else geo_bounds
+        if var_type in ["t2m", "pmsl", "pmsl_eu", "t2m_eu", "geo", "geo_eu", "snow", "snow_eu"]:
+            bounds = t2m_bounds if var_type=="t2m" else pmsl_bounds_colors if var_type=="pmsl" else pmsl_bounds_colors if var_type=="pmsl_eu" else t2m_bounds if var_type=="t2m_eu" else geo_bounds if var_type=="geo" else geo_bounds if var_type=="geo_eu" else snow_bounds if var_type=="snow" else snow_bounds
             cbar_ax = fig.add_axes([0.03, legend_bottom_px / FIG_H_PX, 0.94, legend_h_px / FIG_H_PX])
             cbar = fig.colorbar(im, cax=cbar_ax, orientation="horizontal", ticks=bounds)
             cbar.ax.tick_params(colors="black", labelsize=7)
@@ -749,6 +779,10 @@ else:
             if var_type == "geo_eu":
                 tick_labels = [str(tick) if tick % 80 == 0 else "" for tick in bounds]
                 cbar.set_ticklabels(tick_labels)
+            if var_type=="snow":
+                cbar.set_ticklabels([int(tick) if float(tick).is_integer() else tick for tick in snow_bounds])
+            if var_type=="snow_eu":
+                cbar.set_ticklabels([int(tick) if float(tick).is_integer() else tick for tick in snow_bounds])
         # ------------------------------
 
         # Footer
@@ -761,7 +795,9 @@ else:
             "pmsl": "Luftdruck auf Meereshöhe (hPa)",
             "pmsl_eu": "Luftdruck auf Meereshöhe (hPa), Europa",
             "geo": "Geopotentielle Höhe 500hPa (m)",
-            "geo_eu": "Geopotentielle Höhe 500hPa (m), Europa"
+            "geo_eu": "Geopotentielle Höhe 500hPa (m), Europa",
+            "snow": "Schneehöhe (cm)",
+            "snow_eu": "Schneehöhe (cm), Europa"
         }
 
         left_text = footer_texts.get(var_type, var_type) + \
