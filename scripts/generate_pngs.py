@@ -411,377 +411,377 @@ else:
         lon = ds["longitude"].values
         lat = ds["latitude"].values
 
-    # --- LONGITUDE FIX: 0..360 -> -180..180 und entlang der Lon-Achse sortieren ---
-    if np.nanmax(lon) > 180:                    # z.B. GFS / NOAA
-        lon_wrapped = ((lon + 180) % 360) - 180  # in Bereich [-180,180)
-        order = np.argsort(lon_wrapped)          # monotone Achse für Interpolator
-        lon = lon_wrapped[order]
+        # --- LONGITUDE FIX: 0..360 -> -180..180 und entlang der Lon-Achse sortieren ---
+        if np.nanmax(lon) > 180:                    # z.B. GFS / NOAA
+            lon_wrapped = ((lon + 180) % 360) - 180  # in Bereich [-180,180)
+            order = np.argsort(lon_wrapped)          # monotone Achse für Interpolator
+            lon = lon_wrapped[order]
 
-        # data kann 2D (ny,nx) oder 3D (t,ny,nx) sein – hier abfangen
-        if data.ndim == 2:
-            data = data[:, order]
-        elif data.ndim == 3:
-            data = data[:, :, order]
+            # data kann 2D (ny,nx) oder 3D (t,ny,nx) sein – hier abfangen
+            if data.ndim == 2:
+                data = data[:, order]
+            elif data.ndim == 3:
+                data = data[:, :, order]
 
-    run_time_utc = pd.to_datetime(ds["time"].values) if "time" in ds else None
+        run_time_utc = pd.to_datetime(ds["time"].values) if "time" in ds else None
 
-    if "valid_time" in ds:
-        valid_time_raw = ds["valid_time"].values
-        valid_time_utc = pd.to_datetime(valid_time_raw[0]) if np.ndim(valid_time_raw) > 0 else pd.to_datetime(valid_time_raw)
-    else:
-        step = pd.to_timedelta(ds["step"].values[0])
-        valid_time_utc = run_time_utc + step
-    valid_time_local = valid_time_utc.tz_localize("UTC").astimezone(ZoneInfo("Europe/Berlin"))
+        if "valid_time" in ds:
+            valid_time_raw = ds["valid_time"].values
+            valid_time_utc = pd.to_datetime(valid_time_raw[0]) if np.ndim(valid_time_raw) > 0 else pd.to_datetime(valid_time_raw)
+        else:
+            step = pd.to_timedelta(ds["step"].values[0])
+            valid_time_utc = run_time_utc + step
+        valid_time_local = valid_time_utc.tz_localize("UTC").astimezone(ZoneInfo("Europe/Berlin"))
 
-    # --------------------------
-    # Figure (Deutschland oder Europa)
-    # --------------------------
-    if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
-        scale = 0.9
-        fig = plt.figure(figsize=(FIG_W_PX/100*scale, FIG_H_PX/100*scale), dpi=100)
-        shift_up = 0.02
-        ax = fig.add_axes([0.0, BOTTOM_AREA_PX / FIG_H_PX + shift_up, 1.0, TOP_AREA_PX / FIG_H_PX],
-                        projection=ccrs.PlateCarree())
-        ax.set_extent(extent_eu)
-        ax.set_axis_off()
-        ax.set_aspect('auto')
+        # --------------------------
+        # Figure (Deutschland oder Europa)
+        # --------------------------
+        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
+            scale = 0.9
+            fig = plt.figure(figsize=(FIG_W_PX/100*scale, FIG_H_PX/100*scale), dpi=100)
+            shift_up = 0.02
+            ax = fig.add_axes([0.0, BOTTOM_AREA_PX / FIG_H_PX + shift_up, 1.0, TOP_AREA_PX / FIG_H_PX],
+                            projection=ccrs.PlateCarree())
+            ax.set_extent(extent_eu)
+            ax.set_axis_off()
+            ax.set_aspect('auto')
 
-        print("\n--- DEBUG: pmsl_eu-Kartenbereich ---")
-        print(f"Extent EU: {extent_eu}")
-    else:
-        scale = 0.9
-        fig = plt.figure(figsize=(FIG_W_PX/100*scale, FIG_H_PX/100*scale), dpi=100)
-        shift_up = 0.02
-        ax = fig.add_axes([0.0, BOTTOM_AREA_PX / FIG_H_PX + shift_up, 1.0, TOP_AREA_PX / FIG_H_PX],
-                        projection=ccrs.PlateCarree())
-        ax.set_extent(extent)
-        ax.set_axis_off()
-        ax.set_aspect('auto')
-
-
-    if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
-        target_res = 0.13   # gröber für Europa (~11 km)
-        lon_min, lon_max, lat_min, lat_max = extent_eu
-        buffer = target_res * 20  # Puffer für Interpolation
-        nx = int(round(lon_max - lon_min) / target_res) + 1
-        ny = int(round(lat_max - lat_min) / target_res) + 1
-        lon_new = np.linspace(lon_min - buffer, lon_max + buffer, nx + 15)
-        lat_new = np.linspace(lat_min - buffer, lat_max + buffer, ny + 15)
-        lon2d_new, lat2d_new = np.meshgrid(lon_new, lat_new)
-    else:
-        target_res = 0.025  # feiner für Deutschland (~2.8 km)
-        lon_min, lon_max, lat_min, lat_max = extent
-        lon_new = np.arange(lon_min, lon_max + target_res, target_res)
-        lat_new = np.arange(lat_min, lat_max + target_res, target_res)
-        lon2d_new, lat2d_new = np.meshgrid(lon_new, lat_new)
-
-    print(f"\n--- DEBUG: Neues Interpolationsgitter ---")
-    print(f"lon_new range = {lon_new.min():.2f} .. {lon_new.max():.2f}, len = {len(lon_new)}")
-    print(f"lat_new range = {lat_new.min():.2f} .. {lat_new.max():.2f}, len = {len(lat_new)}")
+            print("\n--- DEBUG: pmsl_eu-Kartenbereich ---")
+            print(f"Extent EU: {extent_eu}")
+        else:
+            scale = 0.9
+            fig = plt.figure(figsize=(FIG_W_PX/100*scale, FIG_H_PX/100*scale), dpi=100)
+            shift_up = 0.02
+            ax = fig.add_axes([0.0, BOTTOM_AREA_PX / FIG_H_PX + shift_up, 1.0, TOP_AREA_PX / FIG_H_PX],
+                            projection=ccrs.PlateCarree())
+            ax.set_extent(extent)
+            ax.set_axis_off()
+            ax.set_aspect('auto')
 
 
-    # Nur interpolieren, wenn Daten reguläres 2D-Gitter haben
-    if lon.ndim == 1 and lat.ndim == 1 and data.ndim == 2:
-        try:
-            if var_type == "ww":
-                # 🧱 Kategorische Interpolation: nearest-neighbor
-                interp_func = RegularGridInterpolator(
-                    (lat[::-1], lon),
-                    data[::-1, :],
-                    method="nearest",          # <--- WICHTIG
-                    bounds_error=False,
-                    fill_value=np.nan
-                )
-            else:
-                # 🌈 Kontinuierliche Interpolation: linear
-                interp_func = RegularGridInterpolator(
-                    (lat[::-1], lon),
-                    data[::-1, :],
-                    method="linear",
-                    bounds_error=False,
-                    fill_value=np.nan
-                )
+        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
+            target_res = 0.13   # gröber für Europa (~11 km)
+            lon_min, lon_max, lat_min, lat_max = extent_eu
+            buffer = target_res * 20  # Puffer für Interpolation
+            nx = int(round(lon_max - lon_min) / target_res) + 1
+            ny = int(round(lat_max - lat_min) / target_res) + 1
+            lon_new = np.linspace(lon_min - buffer, lon_max + buffer, nx + 15)
+            lat_new = np.linspace(lat_min - buffer, lat_max + buffer, ny + 15)
+            lon2d_new, lat2d_new = np.meshgrid(lon_new, lat_new)
+        else:
+            target_res = 0.025  # feiner für Deutschland (~2.8 km)
+            lon_min, lon_max, lat_min, lat_max = extent
+            lon_new = np.arange(lon_min, lon_max + target_res, target_res)
+            lat_new = np.arange(lat_min, lat_max + target_res, target_res)
+            lon2d_new, lat2d_new = np.meshgrid(lon_new, lat_new)
 
-            pts = np.array([lat2d_new.ravel(), lon2d_new.ravel()]).T
-            data = interp_func(pts).reshape(lat2d_new.shape)
-            lon, lat = lon_new, lat_new
-            lon2d, lat2d = lon2d_new, lat2d_new
-            print("Interpolation erfolgreich ✅")
-            print(f"Interpoliertes data.shape = {data.shape}")
-            print(f"Interpolierte Werte: {np.nanmin(data):.1f} .. {np.nanmax(data):.1f}")
-        except Exception as e:
-            print(f"Interpolation übersprungen ({e})")
-
-    # Plot
-    if var_type == "t2m":
-        smooth_data = gaussian_filter(data, sigma=0.8)
-        im = ax.pcolormesh(lon, lat, smooth_data, cmap=t2m_colors, norm=t2m_norm, shading="auto")
-    elif var_type == "t2m_eu":
-        smooth_data = gaussian_filter(data, sigma=0.8)
-        im = ax.pcolormesh(lon, lat, smooth_data, cmap=t2m_colors, norm=t2m_norm, shading="auto")
-    elif var_type == "pmsl":
-        # --- Luftdruck auf Meereshöhe (Deutschland) ---
-        im = ax.pcolormesh(lon, lat, data, cmap=pmsl_colors, norm=pmsl_norm, shading="auto")
-        data_hpa = data  # Daten liegen bereits in hPa vor
-
-        # Haupt-Isobaren (alle 4 hPa)
-        main_levels = list(range(912, 1070, 4))
-        # Feine Isobaren (alle 1 hPa)
-        fine_levels = list(range(912, 1070, 1))
-
-        # Nur Levels zeichnen, die im Datenbereich liegen
-        main_levels = [lev for lev in main_levels if data_hpa.min() <= lev <= data_hpa.max()]
-        fine_levels = [lev for lev in fine_levels if data_hpa.min() <= lev <= data_hpa.max()]
-
-        # Feine Isobaren (weiß, dünn, leicht transparent)
-        ax.contour(
-            lon, lat, data_hpa,
-            levels=fine_levels,
-            colors='gray', linewidths=0.5, alpha=0.4
-        )
-
-        # Haupt-Isobaren (weiß, etwas dicker)
-        cs_main = ax.contour(
-            lon, lat, data_hpa,
-            levels=main_levels,
-            colors='white', linewidths=0.8, alpha=0.9
-        )
-
-        # Isobaren-Beschriftung (Zahlen direkt auf Linien)
-        ax.clabel(cs_main, inline=True, fmt='%d', fontsize=9, colors='black')
-
-        # --- Extremwerte (Tief & Hoch) markieren, aber nur wenn im Extent ---
-        min_idx = np.unravel_index(np.nanargmin(data_hpa), data_hpa.shape)
-        max_idx = np.unravel_index(np.nanargmax(data_hpa), data_hpa.shape)
-        min_val = data_hpa[min_idx]
-        max_val = data_hpa[max_idx]
-
-        lon_min, lon_max, lat_min, lat_max = extent
-
-        # Tiefdruckzentrum (blauer Wert)
-        lon_minpt, lat_minpt = lon[min_idx[1]], lat[min_idx[0]]
-        if lon_min <= lon_minpt <= lon_max and lat_min <= lat_minpt <= lat_max:
-            ax.text(
-                lon_minpt, lat_minpt,
-                f"{min_val:.0f}",
-                color='white', fontsize=12, fontweight='bold',
-                ha='center', va='center',
-                transform=ccrs.PlateCarree(),
-                clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
-            )
-
-        # Hochdruckzentrum (roter Wert)
-        lon_maxpt, lat_maxpt = lon[max_idx[1]], lat[max_idx[0]]
-        if lon_min <= lon_maxpt <= lon_max and lat_min <= lat_maxpt <= lat_max:
-            ax.text(
-                lon_maxpt, lat_maxpt,
-                f"{max_val:.0f}",
-                color='white', fontsize=12, fontweight='bold',
-                ha='center', va='center',
-                transform=ccrs.PlateCarree(),
-                clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
-            )
+        print(f"\n--- DEBUG: Neues Interpolationsgitter ---")
+        print(f"lon_new range = {lon_new.min():.2f} .. {lon_new.max():.2f}, len = {len(lon_new)}")
+        print(f"lat_new range = {lat_new.min():.2f} .. {lat_new.max():.2f}, len = {len(lat_new)}")
 
 
+        # Nur interpolieren, wenn Daten reguläres 2D-Gitter haben
+        if lon.ndim == 1 and lat.ndim == 1 and data.ndim == 2:
+            try:
+                if var_type == "ww":
+                    # 🧱 Kategorische Interpolation: nearest-neighbor
+                    interp_func = RegularGridInterpolator(
+                        (lat[::-1], lon),
+                        data[::-1, :],
+                        method="nearest",          # <--- WICHTIG
+                        bounds_error=False,
+                        fill_value=np.nan
+                    )
+                else:
+                    # 🌈 Kontinuierliche Interpolation: linear
+                    interp_func = RegularGridInterpolator(
+                        (lat[::-1], lon),
+                        data[::-1, :],
+                        method="linear",
+                        bounds_error=False,
+                        fill_value=np.nan
+                    )
 
-    elif var_type == "pmsl_eu":
-            # Schnellere Variante ohne adjust_text und smoothing
+                pts = np.array([lat2d_new.ravel(), lon2d_new.ravel()]).T
+                data = interp_func(pts).reshape(lat2d_new.shape)
+                lon, lat = lon_new, lat_new
+                lon2d, lat2d = lon2d_new, lat2d_new
+                print("Interpolation erfolgreich ✅")
+                print(f"Interpoliertes data.shape = {data.shape}")
+                print(f"Interpolierte Werte: {np.nanmin(data):.1f} .. {np.nanmax(data):.1f}")
+            except Exception as e:
+                print(f"Interpolation übersprungen ({e})")
+
+        # Plot
+        if var_type == "t2m":
+            smooth_data = gaussian_filter(data, sigma=0.8)
+            im = ax.pcolormesh(lon, lat, smooth_data, cmap=t2m_colors, norm=t2m_norm, shading="auto")
+        elif var_type == "t2m_eu":
+            smooth_data = gaussian_filter(data, sigma=0.8)
+            im = ax.pcolormesh(lon, lat, smooth_data, cmap=t2m_colors, norm=t2m_norm, shading="auto")
+        elif var_type == "pmsl":
+            # --- Luftdruck auf Meereshöhe (Deutschland) ---
             im = ax.pcolormesh(lon, lat, data, cmap=pmsl_colors, norm=pmsl_norm, shading="auto")
-            data_hpa = data  # data schon in hPa
+            data_hpa = data  # Daten liegen bereits in hPa vor
+
+            # Haupt-Isobaren (alle 4 hPa)
             main_levels = list(range(912, 1070, 4))
-            cs = ax.contour(lon, lat, data_hpa, levels=main_levels,
-                            colors='white', linewidths=0.8, alpha=0.9)
-            ax.clabel(cs, inline=True, fmt='%d', fontsize=9, colors='black')
+            # Feine Isobaren (alle 1 hPa)
+            fine_levels = list(range(912, 1070, 1))
 
-            low_levels = list(range(912, 1070, 1))
-            cs2 = ax.contour(lon, lat, data_hpa, levels=low_levels,
-                             colors='gray', linewidths=0.5, alpha=0.4)
+            # Nur Levels zeichnen, die im Datenbereich liegen
+            main_levels = [lev for lev in main_levels if data_hpa.min() <= lev <= data_hpa.max()]
+            fine_levels = [lev for lev in fine_levels if data_hpa.min() <= lev <= data_hpa.max()]
 
-            # Min/Max-Druck markieren (optional)
+            # Feine Isobaren (weiß, dünn, leicht transparent)
+            ax.contour(
+                lon, lat, data_hpa,
+                levels=fine_levels,
+                colors='gray', linewidths=0.5, alpha=0.4
+            )
+
+            # Haupt-Isobaren (weiß, etwas dicker)
+            cs_main = ax.contour(
+                lon, lat, data_hpa,
+                levels=main_levels,
+                colors='white', linewidths=0.8, alpha=0.9
+            )
+
+            # Isobaren-Beschriftung (Zahlen direkt auf Linien)
+            ax.clabel(cs_main, inline=True, fmt='%d', fontsize=9, colors='black')
+
+            # --- Extremwerte (Tief & Hoch) markieren, aber nur wenn im Extent ---
             min_idx = np.unravel_index(np.nanargmin(data_hpa), data_hpa.shape)
             max_idx = np.unravel_index(np.nanargmax(data_hpa), data_hpa.shape)
+            min_val = data_hpa[min_idx]
+            max_val = data_hpa[max_idx]
 
-            ax.text(
-                lon[min_idx[1]], lat[min_idx[0]],
-                f"{data_hpa[min_idx]:.0f}",
-                color='white', fontsize=11, fontweight='bold',
-                ha='center', va='center',
-                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
-            )
+            lon_min, lon_max, lat_min, lat_max = extent
 
-            ax.text(
-                lon[max_idx[1]], lat[max_idx[0]],
-                f"{data_hpa[max_idx]:.0f}",
-                color='white', fontsize=11, fontweight='bold',
-                ha='center', va='center',
-                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
-            )
-    elif var_type == "geo":
-            im = ax.pcolormesh(lon, lat, data, cmap=geo_colors, norm=geo_norm, shading="auto")
-            data_geo = data  # in m # data schon in hPa
-            main_levels = list(range(4800, 6000, 40))
-            cs = ax.contour(lon, lat, data_geo, levels=main_levels,
-                            colors='white', linewidths=0.8, alpha=0.9)
-            ax.clabel(cs, inline=True, fmt='%d', fontsize=9, colors='black')
+            # Tiefdruckzentrum (blauer Wert)
+            lon_minpt, lat_minpt = lon[min_idx[1]], lat[min_idx[0]]
+            if lon_min <= lon_minpt <= lon_max and lat_min <= lat_minpt <= lat_max:
+                ax.text(
+                    lon_minpt, lat_minpt,
+                    f"{min_val:.0f}",
+                    color='white', fontsize=12, fontweight='bold',
+                    ha='center', va='center',
+                    transform=ccrs.PlateCarree(),
+                    clip_on=True,
+                    path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
+                )
 
-            low_levels = list(range(4800, 6000, 20))
-            ax.contour(lon, lat, data_geo, levels=low_levels,
-                            colors='gray', linewidths=0.5, alpha=0.4)
-
-            # Min/Max-Druck markieren (optional)
-            min_idx = np.unravel_index(np.nanargmin(data_geo), data_geo.shape)
-            max_idx = np.unravel_index(np.nanargmax(data_geo), data_geo.shape)
-
-            ax.text(
-                lon[min_idx[1]], lat[min_idx[0]],
-                f"{data_geo[min_idx]:.0f}",
-                color='white', fontsize=11, fontweight='bold',
-                ha='center', va='center',
-                transform=ccrs.PlateCarree(),
-                clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
-            )
-
-            ax.text(
-                lon[max_idx[1]], lat[max_idx[0]],
-                f"{data_geo[max_idx]:.0f}",
-                color='white', fontsize=11, fontweight='bold',
-                ha='center', va='center',
-                transform=ccrs.PlateCarree(),
-                clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
-            )
-
-    elif var_type == "geo_eu":
-            im = ax.pcolormesh(lon, lat, data, cmap=geo_colors, norm=geo_norm, shading="auto")
-            data_geo = data  # in m # data schon in hPa
-            main_levels = list(range(4800, 6000, 40))
-            cs = ax.contour(lon, lat, data_geo, levels=main_levels,
-                            colors='white', linewidths=0.8, alpha=0.9)
-            ax.clabel(cs, inline=True, fmt='%d', fontsize=9, colors='black')
-
-            low_levels = list(range(4800, 6000, 20))
-            ax.contour(lon, lat, data_geo, levels=low_levels,
-                            colors='gray', linewidths=0.5, alpha=0.4)
-
-            # Min/Max-Druck markieren (optional)
-            min_idx = np.unravel_index(np.nanargmin(data_geo), data_geo.shape)
-            max_idx = np.unravel_index(np.nanargmax(data_geo), data_geo.shape)
-
-            ax.text(
-                lon[min_idx[1]], lat[min_idx[0]],
-                f"{data_geo[min_idx]:.0f}",
-                color='white', fontsize=11, fontweight='bold',
-                ha='center', va='center',
-                transform=ccrs.PlateCarree(),
-                clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
-            )
-
-            ax.text(
-                lon[max_idx[1]], lat[max_idx[0]],
-                f"{data_geo[max_idx]:.0f}",
-                color='white', fontsize=11, fontweight='bold',
-                ha='center', va='center',
-                transform=ccrs.PlateCarree(),
-                clip_on=True,
-                path_effects=[path_effects.withStroke(linewidth=2, foreground='black')]
-            )
-
-    # ------------------------------
-    # Grenzen & Städte
-    # ------------------------------
-
-    if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
-        # 🌍 Europa: nur Ländergrenzen + europäische Städte
-        ax.add_feature(cfeature.BORDERS.with_scale("10m"), edgecolor="black", linewidth=0.7)
-        ax.add_feature(cfeature.COASTLINE.with_scale("10m"), edgecolor="black", linewidth=0.7)
-
-        for _, city in eu_cities.iterrows():
-            ax.plot(city["lon"], city["lat"], "o", markersize=6,
-                    markerfacecolor="black", markeredgecolor="white",
-                    markeredgewidth=1.5, zorder=5)
-            txt = ax.text(city["lon"] + 0.3, city["lat"] + 0.3, city["name"],
-                          fontsize=9, color="black", weight="bold", zorder=6)
-            txt.set_path_effects([path_effects.withStroke(linewidth=1.5, foreground="white")])
-
-    else:
-        # 🇩🇪 Deutschland: Bundesländer, Grenzen und Städte
-        ax.add_feature(cfeature.STATES.with_scale("10m"), edgecolor="#2C2C2C", linewidth=1)
-        ax.add_feature(cfeature.BORDERS, linestyle=":", edgecolor="#2C2C2C", linewidth=1)
-        ax.add_feature(cfeature.COASTLINE, linewidth=1.0, edgecolor="black")
-
-        for _, city in cities.iterrows():
-            ax.plot(city["lon"], city["lat"], "o", markersize=6,
-                    markerfacecolor="black", markeredgecolor="white",
-                    markeredgewidth=1.5, zorder=5)
-            txt = ax.text(city["lon"] + 0.1, city["lat"] + 0.1, city["name"],
-                          fontsize=9, color="black", weight="bold", zorder=6)
-            txt.set_path_effects([path_effects.withStroke(linewidth=1.5, foreground="white")])
-
-    # Rahmen um Karte
-    ax.add_patch(mpatches.Rectangle((0, 0), 1, 1, transform=ax.transAxes,
-                                    fill=False, color="black", linewidth=2))
+            # Hochdruckzentrum (roter Wert)
+            lon_maxpt, lat_maxpt = lon[max_idx[1]], lat[max_idx[0]]
+            if lon_min <= lon_maxpt <= lon_max and lat_min <= lat_maxpt <= lat_max:
+                ax.text(
+                    lon_maxpt, lat_maxpt,
+                    f"{max_val:.0f}",
+                    color='white', fontsize=12, fontweight='bold',
+                    ha='center', va='center',
+                    transform=ccrs.PlateCarree(),
+                    clip_on=True,
+                    path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
+                )
 
 
-    # Legende
-    legend_h_px = 50
-    legend_bottom_px = 45
-    if var_type in ["t2m", "pmsl", "pmsl_eu", "t2m_eu", "geo", "geo_eu"]:
-        bounds = t2m_bounds if var_type=="t2m" else pmsl_bounds_colors if var_type=="pmsl" else pmsl_bounds_colors if var_type=="pmsl_eu" else t2m_bounds if var_type=="t2m_eu" else geo_bounds if var_type=="geo" else geo_bounds
-        cbar_ax = fig.add_axes([0.03, legend_bottom_px / FIG_H_PX, 0.94, legend_h_px / FIG_H_PX])
-        cbar = fig.colorbar(im, cax=cbar_ax, orientation="horizontal", ticks=bounds)
-        cbar.ax.tick_params(colors="black", labelsize=7)
-        cbar.outline.set_edgecolor("black")
-        cbar.ax.set_facecolor("white")
 
-        # Für pmsl nur jeden 10. hPa Tick beschriften
-        if var_type=="pmsl":
-            tick_labels = [str(tick) if tick % 8 == 0 else "" for tick in bounds]
-            cbar.set_ticklabels(tick_labels)
-        if var_type=="pmsl_eu":
-            tick_labels = [str(tick) if tick % 8 == 0 else "" for tick in bounds]
-            cbar.set_ticklabels(tick_labels)
-        if var_type == "t2m":
-            tick_labels = [str(tick) if tick % 4 == 0 else "" for tick in bounds]
-            cbar.set_ticklabels(tick_labels)
-        if var_type == "t2m_eu":
-            tick_labels = [str(tick) if tick % 4 == 0 else "" for tick in bounds]
-            cbar.set_ticklabels(tick_labels)
-        if var_type == "geo":
-            tick_labels = [str(tick) if tick % 80 == 0 else "" for tick in bounds]
-            cbar.set_ticklabels(tick_labels)
-        if var_type == "geo_eu":
-            tick_labels = [str(tick) if tick % 80 == 0 else "" for tick in bounds]
-            cbar.set_ticklabels(tick_labels)
-    # ------------------------------
+        elif var_type == "pmsl_eu":
+                # Schnellere Variante ohne adjust_text und smoothing
+                im = ax.pcolormesh(lon, lat, data, cmap=pmsl_colors, norm=pmsl_norm, shading="auto")
+                data_hpa = data  # data schon in hPa
+                main_levels = list(range(912, 1070, 4))
+                cs = ax.contour(lon, lat, data_hpa, levels=main_levels,
+                                colors='white', linewidths=0.8, alpha=0.9)
+                ax.clabel(cs, inline=True, fmt='%d', fontsize=9, colors='black')
 
-    # Footer
-    footer_ax = fig.add_axes([0.0, (legend_bottom_px + legend_h_px)/FIG_H_PX, 1.0,
-                              (BOTTOM_AREA_PX - legend_h_px - legend_bottom_px)/FIG_H_PX])
-    footer_ax.axis("off")
-    footer_texts = {
-        "t2m": "Temperatur 2m (°C)",
-        "t2m_eu": "Temperatur 2m (°C), Europa",
-        "pmsl": "Luftdruck auf Meereshöhe (hPa)",
-        "pmsl_eu": "Luftdruck auf Meereshöhe (hPa), Europa",
-        "geo": "Geopotentielle Höhe 500hPa (m)",
-        "geo_eu": "Geopotentielle Höhe 500hPa (m), Europa"
-    }
+                low_levels = list(range(912, 1070, 1))
+                cs2 = ax.contour(lon, lat, data_hpa, levels=low_levels,
+                                colors='gray', linewidths=0.5, alpha=0.4)
 
-    left_text = footer_texts.get(var_type, var_type) + \
-                f"\nGFS ({pd.to_datetime(run_time_utc).hour:02d}z), NOAA" \
-                if run_time_utc is not None else \
-                footer_texts.get(var_type, var_type) + "\nGFS (??z), NOAA"
+                # Min/Max-Druck markieren (optional)
+                min_idx = np.unravel_index(np.nanargmin(data_hpa), data_hpa.shape)
+                max_idx = np.unravel_index(np.nanargmax(data_hpa), data_hpa.shape)
 
-    footer_ax.text(0.01, 0.85, left_text, fontsize=12, fontweight="bold", va="top", ha="left")
-    footer_ax.text(0.734, 0.92, "Prognose für:", fontsize=12, va="top", ha="left", fontweight="bold")
-    footer_ax.text(0.99, 0.68, f"{valid_time_local:%d.%m.%Y %H:%M} Uhr",
-                   fontsize=12, va="top", ha="right", fontweight="bold")
+                ax.text(
+                    lon[min_idx[1]], lat[min_idx[0]],
+                    f"{data_hpa[min_idx]:.0f}",
+                    color='white', fontsize=11, fontweight='bold',
+                    ha='center', va='center',
+                    path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
+                )
 
-    # Speichern
-    outname = f"{var_type}_{valid_time_local:%Y%m%d_%H%M}.png"
-    plt.savefig(os.path.join(output_dir, outname), dpi=100, bbox_inches=None, pad_inches=0)
-    plt.close()
+                ax.text(
+                    lon[max_idx[1]], lat[max_idx[0]],
+                    f"{data_hpa[max_idx]:.0f}",
+                    color='white', fontsize=11, fontweight='bold',
+                    ha='center', va='center',
+                    path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
+                )
+        elif var_type == "geo":
+                im = ax.pcolormesh(lon, lat, data, cmap=geo_colors, norm=geo_norm, shading="auto")
+                data_geo = data  # in m # data schon in hPa
+                main_levels = list(range(4800, 6000, 40))
+                cs = ax.contour(lon, lat, data_geo, levels=main_levels,
+                                colors='white', linewidths=0.8, alpha=0.9)
+                ax.clabel(cs, inline=True, fmt='%d', fontsize=9, colors='black')
+
+                low_levels = list(range(4800, 6000, 20))
+                ax.contour(lon, lat, data_geo, levels=low_levels,
+                                colors='gray', linewidths=0.5, alpha=0.4)
+
+                # Min/Max-Druck markieren (optional)
+                min_idx = np.unravel_index(np.nanargmin(data_geo), data_geo.shape)
+                max_idx = np.unravel_index(np.nanargmax(data_geo), data_geo.shape)
+
+                ax.text(
+                    lon[min_idx[1]], lat[min_idx[0]],
+                    f"{data_geo[min_idx]:.0f}",
+                    color='white', fontsize=11, fontweight='bold',
+                    ha='center', va='center',
+                    transform=ccrs.PlateCarree(),
+                    clip_on=True,
+                    path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
+                )
+
+                ax.text(
+                    lon[max_idx[1]], lat[max_idx[0]],
+                    f"{data_geo[max_idx]:.0f}",
+                    color='white', fontsize=11, fontweight='bold',
+                    ha='center', va='center',
+                    transform=ccrs.PlateCarree(),
+                    clip_on=True,
+                    path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
+                )
+
+        elif var_type == "geo_eu":
+                im = ax.pcolormesh(lon, lat, data, cmap=geo_colors, norm=geo_norm, shading="auto")
+                data_geo = data  # in m # data schon in hPa
+                main_levels = list(range(4800, 6000, 40))
+                cs = ax.contour(lon, lat, data_geo, levels=main_levels,
+                                colors='white', linewidths=0.8, alpha=0.9)
+                ax.clabel(cs, inline=True, fmt='%d', fontsize=9, colors='black')
+
+                low_levels = list(range(4800, 6000, 20))
+                ax.contour(lon, lat, data_geo, levels=low_levels,
+                                colors='gray', linewidths=0.5, alpha=0.4)
+
+                # Min/Max-Druck markieren (optional)
+                min_idx = np.unravel_index(np.nanargmin(data_geo), data_geo.shape)
+                max_idx = np.unravel_index(np.nanargmax(data_geo), data_geo.shape)
+
+                ax.text(
+                    lon[min_idx[1]], lat[min_idx[0]],
+                    f"{data_geo[min_idx]:.0f}",
+                    color='white', fontsize=11, fontweight='bold',
+                    ha='center', va='center',
+                    transform=ccrs.PlateCarree(),
+                    clip_on=True,
+                    path_effects=[path_effects.withStroke(linewidth=1.5, foreground='black')]
+                )
+
+                ax.text(
+                    lon[max_idx[1]], lat[max_idx[0]],
+                    f"{data_geo[max_idx]:.0f}",
+                    color='white', fontsize=11, fontweight='bold',
+                    ha='center', va='center',
+                    transform=ccrs.PlateCarree(),
+                    clip_on=True,
+                    path_effects=[path_effects.withStroke(linewidth=2, foreground='black')]
+                )
+
+        # ------------------------------
+        # Grenzen & Städte
+        # ------------------------------
+
+        if var_type in ["pmsl_eu", "geo_eu", "t2m_eu"]:
+            # 🌍 Europa: nur Ländergrenzen + europäische Städte
+            ax.add_feature(cfeature.BORDERS.with_scale("10m"), edgecolor="black", linewidth=0.7)
+            ax.add_feature(cfeature.COASTLINE.with_scale("10m"), edgecolor="black", linewidth=0.7)
+
+            for _, city in eu_cities.iterrows():
+                ax.plot(city["lon"], city["lat"], "o", markersize=6,
+                        markerfacecolor="black", markeredgecolor="white",
+                        markeredgewidth=1.5, zorder=5)
+                txt = ax.text(city["lon"] + 0.3, city["lat"] + 0.3, city["name"],
+                            fontsize=9, color="black", weight="bold", zorder=6)
+                txt.set_path_effects([path_effects.withStroke(linewidth=1.5, foreground="white")])
+
+        else:
+            # 🇩🇪 Deutschland: Bundesländer, Grenzen und Städte
+            ax.add_feature(cfeature.STATES.with_scale("10m"), edgecolor="#2C2C2C", linewidth=1)
+            ax.add_feature(cfeature.BORDERS, linestyle=":", edgecolor="#2C2C2C", linewidth=1)
+            ax.add_feature(cfeature.COASTLINE, linewidth=1.0, edgecolor="black")
+
+            for _, city in cities.iterrows():
+                ax.plot(city["lon"], city["lat"], "o", markersize=6,
+                        markerfacecolor="black", markeredgecolor="white",
+                        markeredgewidth=1.5, zorder=5)
+                txt = ax.text(city["lon"] + 0.1, city["lat"] + 0.1, city["name"],
+                            fontsize=9, color="black", weight="bold", zorder=6)
+                txt.set_path_effects([path_effects.withStroke(linewidth=1.5, foreground="white")])
+
+        # Rahmen um Karte
+        ax.add_patch(mpatches.Rectangle((0, 0), 1, 1, transform=ax.transAxes,
+                                        fill=False, color="black", linewidth=2))
+
+
+        # Legende
+        legend_h_px = 50
+        legend_bottom_px = 45
+        if var_type in ["t2m", "pmsl", "pmsl_eu", "t2m_eu", "geo", "geo_eu"]:
+            bounds = t2m_bounds if var_type=="t2m" else pmsl_bounds_colors if var_type=="pmsl" else pmsl_bounds_colors if var_type=="pmsl_eu" else t2m_bounds if var_type=="t2m_eu" else geo_bounds if var_type=="geo" else geo_bounds
+            cbar_ax = fig.add_axes([0.03, legend_bottom_px / FIG_H_PX, 0.94, legend_h_px / FIG_H_PX])
+            cbar = fig.colorbar(im, cax=cbar_ax, orientation="horizontal", ticks=bounds)
+            cbar.ax.tick_params(colors="black", labelsize=7)
+            cbar.outline.set_edgecolor("black")
+            cbar.ax.set_facecolor("white")
+
+            # Für pmsl nur jeden 10. hPa Tick beschriften
+            if var_type=="pmsl":
+                tick_labels = [str(tick) if tick % 8 == 0 else "" for tick in bounds]
+                cbar.set_ticklabels(tick_labels)
+            if var_type=="pmsl_eu":
+                tick_labels = [str(tick) if tick % 8 == 0 else "" for tick in bounds]
+                cbar.set_ticklabels(tick_labels)
+            if var_type == "t2m":
+                tick_labels = [str(tick) if tick % 4 == 0 else "" for tick in bounds]
+                cbar.set_ticklabels(tick_labels)
+            if var_type == "t2m_eu":
+                tick_labels = [str(tick) if tick % 4 == 0 else "" for tick in bounds]
+                cbar.set_ticklabels(tick_labels)
+            if var_type == "geo":
+                tick_labels = [str(tick) if tick % 80 == 0 else "" for tick in bounds]
+                cbar.set_ticklabels(tick_labels)
+            if var_type == "geo_eu":
+                tick_labels = [str(tick) if tick % 80 == 0 else "" for tick in bounds]
+                cbar.set_ticklabels(tick_labels)
+        # ------------------------------
+
+        # Footer
+        footer_ax = fig.add_axes([0.0, (legend_bottom_px + legend_h_px)/FIG_H_PX, 1.0,
+                                (BOTTOM_AREA_PX - legend_h_px - legend_bottom_px)/FIG_H_PX])
+        footer_ax.axis("off")
+        footer_texts = {
+            "t2m": "Temperatur 2m (°C)",
+            "t2m_eu": "Temperatur 2m (°C), Europa",
+            "pmsl": "Luftdruck auf Meereshöhe (hPa)",
+            "pmsl_eu": "Luftdruck auf Meereshöhe (hPa), Europa",
+            "geo": "Geopotentielle Höhe 500hPa (m)",
+            "geo_eu": "Geopotentielle Höhe 500hPa (m), Europa"
+        }
+
+        left_text = footer_texts.get(var_type, var_type) + \
+                    f"\nGFS ({pd.to_datetime(run_time_utc).hour:02d}z), NOAA" \
+                    if run_time_utc is not None else \
+                    footer_texts.get(var_type, var_type) + "\nGFS (??z), NOAA"
+
+        footer_ax.text(0.01, 0.85, left_text, fontsize=12, fontweight="bold", va="top", ha="left")
+        footer_ax.text(0.734, 0.92, "Prognose für:", fontsize=12, va="top", ha="left", fontweight="bold")
+        footer_ax.text(0.99, 0.68, f"{valid_time_local:%d.%m.%Y %H:%M} Uhr",
+                    fontsize=12, va="top", ha="right", fontweight="bold")
+
+        # Speichern
+        outname = f"{var_type}_{valid_time_local:%Y%m%d_%H%M}.png"
+        plt.savefig(os.path.join(output_dir, outname), dpi=100, bbox_inches=None, pad_inches=0)
+        plt.close()
