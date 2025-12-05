@@ -218,47 +218,40 @@ def process_tp_acc_files(data_dir, output_dir):
         print(f"\n=== Verarbeite Modellrun: {run_time} ===")
         
         accumulated_tp = None
-        
+        previous_tp = None   # Wichtig!
+
         for idx, row in group.iterrows():
             ds = cfgrib.open_dataset(row['path'])
             current_tp = ds["tp"].values
-            
             if current_tp.ndim == 3:
                 current_tp = current_tp[0]
-            
-            current_tp[current_tp < 0] = 0  # Negative Werte auf 0 setzen
+            current_tp[current_tp < 0] = 0
             cmap, norm = tp_acc_colors, tp_acc_norm
             cmap.set_under("white")
-            
+
+            # Longitude fixen (wie gehabt)
             lon = ds["longitude"].values
             lat = ds["latitude"].values
-            
-            # Longitude Fix
             if np.nanmax(lon) > 180:
                 lon_wrapped = ((lon + 180) % 360) - 180
                 order = np.argsort(lon_wrapped)
                 lon = lon_wrapped[order]
-                if current_tp.ndim == 2:
-                    current_tp = current_tp[:, order]
-            
-            # HIER IST DER FIX: Richtige Akkumulation
+                current_tp = current_tp[:, order]
+
+            # === RICHTIGE AKKUMULATION ===
             if accumulated_tp is None:
-                # Erste Datei: Starte mit diesem Wert
+                # Erster Zeitschritt
                 accumulated_tp = current_tp.copy()
             else:
-                # Ab der zweiten Datei: ADDIERE die tp-Werte auf
-                # Da tp im GRIB bereits akkumuliert ist, nehmen wir einfach den aktuellen Wert
-                # ABER: Wenn deine GRIB-Dateien 3-stündliche Buckets enthalten, 
-                # dann ist current_tp der Niederschlag für diese 3h-Periode
-                # und wir müssen addieren!
-                accumulated_tp = accumulated_tp + current_tp
-            
-            # Jetzt plotten wir accumulated_tp
-            plot_tp_acc_map(
-                lon, lat, accumulated_tp,
-                row['run_time'], row['valid_time'],
-                output_dir
-            )
+                # Differenz seit letztem Schritt
+                delta_tp = current_tp - previous_tp
+                delta_tp[delta_tp < 0] = 0  # Schutz vor Reset (z.B. bei 384h)
+                accumulated_tp = accumulated_tp + delta_tp
+
+            previous_tp = current_tp.copy()   # Für nächsten Schritt merken
+
+            # Plotten mit korrektem accumulated_tp
+            plot_tp_acc_map(lon, lat, accumulated_tp, row['run_time'], row['valid_time'], output_dir)
             
             print(f"  Forecast hour {row['forecast_hour']:03d}: "
                   f"Max akkumuliert = {np.nanmax(accumulated_tp):.1f} mm")
