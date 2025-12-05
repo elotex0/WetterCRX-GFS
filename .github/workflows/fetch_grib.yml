@@ -60,8 +60,9 @@ jobs:
           python scripts/download_t2m.py &
           python scripts/download_geo.py &
           python scripts/download_pmsl.py &
-          python scripts/download_tp_acc.py
+          python scripts/download_tp_acc.py &
           wait
+          python scripts/download_snow.py
       
           echo "✅ Alle Variablen wurden erfolgreich geladen!"
 
@@ -83,8 +84,8 @@ jobs:
     needs: fetch_and_generate
     strategy:
       matrix:
-        variable: [t2m, t2m_eu, pmsl, pmsl_eu, geo, geo_eu, tp_acc]
-      max-parallel: 6
+        variable: [t2m, t2m_eu, pmsl, pmsl_eu, geo, geo_eu, tp_acc, snow, snow_eu]
+      max-parallel: 9
       
     steps:
       - name: Checkout Repo
@@ -114,6 +115,8 @@ jobs:
             input_dir="data/pmsl"
           elif [ "${{ matrix.variable }}" = "geo_eu" ]; then
             input_dir="data/geo"
+          elif [ "${{ matrix.variable }}" = "snow_eu" ]; then
+            input_dir="data/snow"
           fi
           python scripts/generate_pngs.py \
             "$input_dir" \
