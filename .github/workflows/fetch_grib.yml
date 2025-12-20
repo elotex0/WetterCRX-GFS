@@ -107,7 +107,7 @@ jobs:
 
       - name: Generate PNGs for ${{ matrix.variable }}
         run: |
-          mkdir -p iconeu/${{ matrix.variable }}
+          mkdir -p gfs/${{ matrix.variable }}
           input_dir="data/${{ matrix.variable }}"
           if [ "${{ matrix.variable }}" = "t2m_eu" ]; then
             input_dir="data/t2m"
