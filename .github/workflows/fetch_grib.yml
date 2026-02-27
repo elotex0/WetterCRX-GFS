@@ -72,6 +72,7 @@ jobs:
         with:
           name: grib2
           path: data/
+          retention-days: 1
 
       - name: Delete GRIB2 files (local cleanup)
         run: rm -rf data/
@@ -129,6 +130,7 @@ jobs:
         with:
           name: gfs-${{ matrix.variable }}
           path: gfs/${{ matrix.variable }}
+          retention-days: 1
 
   # -------------------------------------------------------
   # 3️⃣ Merge PNGs + Deploy to R2
