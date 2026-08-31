@@ -7,21 +7,21 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 DATE = os.environ.get("DATE")
 RUN = os.environ.get("RUN")
 
-os.makedirs("data/snow", exist_ok=True)
+os.makedirs("data/wind", exist_ok=True)
 
-FIELD_REGEX = r":\s*SNOD:surface"
+FIELD_REGEX = r":\s*GUST:surface"
 MAX_WORKERS = 6  # Anzahl paralleler Downloads (anpassbar)
 RETRY_LIMIT = 3  # erneute Versuche falls Fehler
 
 
-def fetch_snow(fh):
+def fetch_t2m(fh):
     fh_padded = f"{fh:03d}"
 
     base = f"https://noaa-gfs-bdp-pds.s3.amazonaws.com/gfs.{DATE}/{RUN}/atmos"
     idx_url = f"{base}/gfs.t{RUN}z.pgrb2.0p25.f{fh_padded}.idx"
     grib_url = f"{base}/gfs.t{RUN}z.pgrb2.0p25.f{fh_padded}"
 
-    out = f"data/snow/snow_{fh_padded}.grib2"
+    out = f"data/wind/wind_{fh_padded}.grib2"
 
     for attempt in range(1, RETRY_LIMIT + 1):
         try:
@@ -32,7 +32,7 @@ def fetch_snow(fh):
             idx_data = r.text.splitlines()
 
             all_offsets = []
-            snow_offsets = []
+            t2m_offsets = []
 
             for line in idx_data:
                 if ":" not in line:
@@ -45,16 +45,16 @@ def fetch_snow(fh):
                 all_offsets.append(offset)
 
                 if re.search(FIELD_REGEX, line):
-                    snow_offsets.append(offset)
+                    t2m_offsets.append(offset)
 
-            if not snow_offsets:
-                return f"⚠️ [{fh_padded}] Kein Schnee gefunden"
+            if not t2m_offsets:
+                return f"⚠️ [{fh_padded}] Kein t2m gefunden"
 
             head = requests.head(grib_url, timeout=10)
             filesize = int(head.headers.get("Content-Length", 0))
 
             ranges = []
-            for start in snow_offsets:
+            for start in t2m_offsets:
                 nxt = [o for o in all_offsets if o > start]
                 end = min(nxt) - 1 if nxt else filesize - 1
                 ranges.append((start, end))
@@ -87,9 +87,9 @@ print(f"🚀 Starte parallele AWS-Downloads ({MAX_WORKERS} Worker)…")
 tasks = []
 with ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
     for fh in forecast_hours:
-        tasks.append(executor.submit(fetch_snow, fh))
+        tasks.append(executor.submit(fetch_t2m, fh))
 
     for future in as_completed(tasks):
         print(future.result())
 
-print("\n🎉 COMPLETED: Snow-Downloads abgeschlossen!")
+print("\n🎉 COMPLETED: T2M-Downloads abgeschlossen!")
