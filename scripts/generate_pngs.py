@@ -72,6 +72,21 @@ wind_colors = ListedColormap([
 ])
 wind_norm = mcolors.BoundaryNorm(wind_bounds, wind_colors.N)
 
+# ------------------------------
+# Niederschlags-Farben 1h (tp)
+# ------------------------------
+prec_bounds = [0.0, 0.1, 0.2, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
+               12, 14, 16, 20, 24, 30, 40, 50, 60, 80, 100, 125]
+prec_colors = ListedColormap([
+    "#FFFFFF", "#B4D7FF", "#75BAFF", "#349AFF", "#0582FF", "#0069D2",
+    "#003680", "#148F1B", "#1ACF06", "#64ED07", "#FFF32B",
+    "#E9DC01", "#F06000", "#FF7F26", "#FFA66A", "#F94E78",
+    "#F71E53", "#BE0000", "#880000", "#64007F", "#C201FC",
+    "#DD66FE", "#EBA6FF", "#F9E7FF", "#D4D4D4"
+])
+prec_norm = mcolors.BoundaryNorm(prec_bounds, prec_colors.N)
+
+
 
 
 # ------------------------------
@@ -81,9 +96,7 @@ extent = [-3.94, 20.34, 43.18, 58.08]  # lon_min, lon_max, lat_min, lat_max
 
 FOOTER_TEXTS = {
     "t2m": "Temperatur 2m (°C)",
-    "geo": "Geopotentielle Höhe 500hPa (m)",
-    "pmsl": "Luftdruck auf Meereshöhe (hPa)",
-    "snow": "Schneehöhe (cm)",
+    "tp": "Niederschlag (mm)",
     "tp_acc": "Akkumulierter Niederschlag (mm)",
     "wind": "Windböen (km/h)",
 }
@@ -91,9 +104,7 @@ FOOTER_TEXTS = {
 # Einheit je Variable - für die Wertanzeige im Frontend
 VALUE_UNITS = {
     "t2m": "°C",
-    "geo": "m",
-    "pmsl": "hPa",
-    "snow": "cm",
+    "tp": "mm",
     "tp_acc": "mm",
     "wind": "km/h"
 }
@@ -101,9 +112,7 @@ VALUE_UNITS = {
 # Nachkommastellen je Variable für die Wertanzeige
 VALUE_DECIMALS = {
     "t2m": 1,
-    "geo": 0,
-    "pmsl": 0,
-    "snow": 1,
+    "tp": 1,
     "tp_acc": 1,
     "wind": 0,
 }
@@ -326,6 +335,7 @@ def render_and_save(var_type, data, lon, lat, valid_time_local, output_dir):
     cmap, norm = {
         "t2m": (t2m_colors, t2m_norm),
         "wind": (wind_colors, wind_norm),
+        "tp": (prec_colors, prec_norm),
     }[var_type]
 
     render_data_merc = warp_equirect_to_webmercator(data, lon, lat, extent, method="linear")
@@ -453,12 +463,17 @@ def process_tp_acc_files(data_dir, output_dir):
 # ------------------------------
 if var_type == "tp_acc":
     process_tp_acc_files(data_dir, output_dir)
-elif var_type in ("t2m", "wind"):
+elif var_type in ("t2m", "wind", "tp"):
     for filename in sorted(os.listdir(data_dir)):
         if not filename.endswith(".grib2"):
             continue
         path = os.path.join(data_dir, filename)
-        ds = cfgrib.open_dataset(path)
+
+
+        if var_type == "tp":
+            ds = cfgrib.open_dataset(path, filter_by_keys={'stepType': 'instant'})
+        else:
+            ds = cfgrib.open_dataset(path)
 
         if var_type == "t2m":
             if "t2m" not in ds:
@@ -473,6 +488,13 @@ elif var_type in ("t2m", "wind"):
                 continue
             data = ds["gust"].values * 3.6
             data[data < 0] = 0
+        elif var_type == "tp":
+            if "prate" not in ds:
+                print(f"Keine prate in {filename} - vorhandene Variablen: {list(ds.data_vars)}")
+                ds.close()
+                continue
+            data = ds["prate"].values * 3600
+            
 
         if data.ndim == 3:
             data = data[0]
