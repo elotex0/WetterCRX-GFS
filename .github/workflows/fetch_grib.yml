@@ -59,7 +59,8 @@ jobs:
           echo "🔹 Starte Python-Downloads für GFS (DATE=$DATE, RUN=$RUN)"
           python scripts/download_t2m.py &
           python scripts/download_tp_acc.py &
-          python scripts/download_gust.py
+          python scripts/download_gust.py &
+          python scripts/download_tp.py
       
           echo "✅ Alle Variablen wurden erfolgreich geladen!"
 
@@ -81,8 +82,8 @@ jobs:
     needs: fetch_and_generate
     strategy:
       matrix:
-        variable: [t2m, tp_acc, wind]
-      max-parallel: 3
+        variable: [t2m, tp_acc, wind, tp]
+      max-parallel: 4
       
     steps:
       - name: Checkout Repo
