@@ -61,6 +61,7 @@ jobs:
           python scripts/download_tp_acc.py &
           python scripts/download_gust.py &
           python scripts/download_tp.py
+          wait
       
           echo "✅ Alle Variablen wurden erfolgreich geladen!"
 
