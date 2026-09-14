@@ -245,6 +245,34 @@ _dom_x_max, _dom_y_max = lonlat_to_webmercator(extent[1], extent[3])
 DOMAIN_EXTENT_3857 = [float(_dom_x_min), float(_dom_y_min), float(_dom_x_max), float(_dom_y_max)]
 
 # ------------------------------
+# Deutschland-Bbox fuer den eingebetteten DVAL-Chunk (nur t2m/wind) -
+# das Farbbild bleibt auf der vollen Domaene, nur die Rohwerte im
+# Chunk werden zugeschnitten, um die Dateigroesse zu reduzieren.
+# ------------------------------
+GERMANY_BBOX_LONLAT = [5.5, 15.3, 47.0, 55.3]  # lon_min, lon_max, lat_min, lat_max
+
+_full_x_new, _full_y_new = webmercator_target_grid(extent, out_width=WEBMERCATOR_WIDTH)
+
+_gbx_min, _gby_min = lonlat_to_webmercator(GERMANY_BBOX_LONLAT[0], GERMANY_BBOX_LONLAT[2])
+_gbx_max, _gby_max = lonlat_to_webmercator(GERMANY_BBOX_LONLAT[1], GERMANY_BBOX_LONLAT[3])
+
+_col_i0 = max(0, np.searchsorted(_full_x_new, _gbx_min, side="left") - 1)
+_col_i1 = min(len(_full_x_new) - 1, np.searchsorted(_full_x_new, _gbx_max, side="right"))
+_row_i0 = max(0, np.searchsorted(_full_y_new, _gby_min, side="left") - 1)
+_row_i1 = min(len(_full_y_new) - 1, np.searchsorted(_full_y_new, _gby_max, side="right"))
+
+GERMANY_CROP_EXTENT_3857 = [
+    float(_full_x_new[_col_i0]), float(_full_y_new[_row_i0]),
+    float(_full_x_new[_col_i1]), float(_full_y_new[_row_i1]),
+]
+
+
+def crop_to_germany(data_south_first):
+    """data_south_first: 2D-Array wie von warp_equirect_to_webmercator
+    zurueckgegeben (row0 = Sueden). Schneidet auf die Deutschland-Bbox zu."""
+    return data_south_first[_row_i0:_row_i1 + 1, _col_i0:_col_i1 + 1]
+
+# ------------------------------
 # Eingebettete Rohdaten (DVAL-Chunk) im WebP
 # ------------------------------
 # Nur t2m aus Dokument 1 wird als Rohwert-Overlay fürs Frontend gebraucht
@@ -361,8 +389,9 @@ def render_and_save(var_type, data, lon, lat, valid_time_local, output_dir):
     save_transparent_webp(render_data_merc, cmap, norm, out_path, contour_rgba=contour_rgba)
 
     if var_type in EMBED_DATA_VARS:
+        germany_data = crop_to_germany(render_data_merc)          # row0 = Süden
         quantum = QUANTUM_STEP.get(var_type, 0.1)
-        embed_data_chunk(out_path, render_data_merc[::-1], DOMAIN_EXTENT_3857, quantum)
+        embed_data_chunk(out_path, germany_data[::-1], GERMANY_CROP_EXTENT_3857, quantum)  # row0 = Norden
 
     return outname
 
