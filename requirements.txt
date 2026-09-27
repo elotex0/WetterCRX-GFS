@@ -1,9 +1,9 @@
 adjusttext==1.4.0
-cartopy==0.25.0
+cartopy==0.26.0
 cfgrib==0.9.15.1
 geopandas==1.1.4
 matplotlib==3.11.2
-pandas==3.0.5
+pandas==3.0.6
 requests==2.34.2
 shapely==2.1.2
 xarray==2026.7.0
