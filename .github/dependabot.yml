@@ -10,6 +10,8 @@ updates:
           - "*"
     commit-message:
       prefix: "fix"
+    reviewers:
+      - "elotex0"
 
   - package-ecosystem: "pip"
     directory: "/"
@@ -21,3 +23,5 @@ updates:
           - "*"
     commit-message:
       prefix: "fix"
+    reviewers:
+      - "elotex0"
