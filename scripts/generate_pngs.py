@@ -1,405 +1,150 @@
 import sys
-import cfgrib
-import pandas as pd
+import json
 import os
-import struct
-import zlib
-from zoneinfo import ZoneInfo
-from scipy.interpolate import RegularGridInterpolator
-import numpy as np
 import gc
-import matplotlib
-matplotlib.use("Agg")  # headless, kein Display nötig
-import matplotlib.pyplot as plt
-from matplotlib.colors import ListedColormap, BoundaryNorm, LinearSegmentedColormap
-import matplotlib.colors as mcolors
-from PIL import Image
 import warnings
+from zoneinfo import ZoneInfo
+
+import cfgrib
+import numpy as np
+import pandas as pd
+from scipy.interpolate import RegularGridInterpolator
+
+from encoding_config import NODATA_U8, LEVELS, ENCODING
 
 warnings.simplefilter(action='ignore', category=FutureWarning)
 
 # ------------------------------
 # Eingabe-/Ausgabe
 # ------------------------------
-data_dir = sys.argv[1]        # z.B. "output"
-output_dir = sys.argv[2]      # z.B. "output/maps"
-var_type = sys.argv[3]        # 't2m', 'geo', 'pmsl', 'snow', 'tp_acc'
+data_dir = sys.argv[1]        # z.B. "data/t2m"
+output_dir = sys.argv[2]      # z.B. "gfs/t2m"
+var_type = sys.argv[3]        # 't2m', 'wind', 'tp', 'tp_acc'
 os.makedirs(output_dir, exist_ok=True)
 
-# ------------------------------
-# Temperatur-Farben (unverändert aus Dokument 1)
-# ------------------------------
-t2m_bounds = list(range(-36, 50, 2))
-t2m_colors = LinearSegmentedColormap.from_list(
-    "t2m_smoooth",
-    [
-        "#F675F4", "#F428E9", "#B117B5", "#950CA2", "#640180",
-        "#3E007F", "#00337E", "#005295", "#1292FF", "#49ACFF",
-        "#8FCDFF", "#B4DBFF", "#B9ECDD", "#88D4AD", "#07A125",
-        "#3FC107", "#9DE004", "#E7F700", "#F3CD0A", "#EE5505",
-        "#C81904", "#AF0E14", "#620001", "#C87879", "#FACACA",
-        "#E1E1E1", "#6D6D6D"
-    ],
-    N=len(t2m_bounds)
-)
-t2m_norm = BoundaryNorm(t2m_bounds, ncolors=len(t2m_bounds))
+if var_type not in ENCODING:
+    print(f"Unbekannter var_type {var_type}")
+    sys.exit(1)
+enc = ENCODING[var_type]
 
 # ------------------------------
-# Aufsummierter Niederschlag (tp_acc, unverändert aus Dokument 1)
+# Ausgaberaster (identisch zum ICON-D2-Raster)
 # ------------------------------
-tp_acc_bounds = [0.0, 0.1, 1, 2, 3, 5, 7, 10, 15, 20, 25, 30, 40, 50, 60, 70, 80, 90, 100,
-                  125, 150, 175, 200, 250, 300, 400, 500]
-tp_acc_colors = ListedColormap([
-    "#FFFFFF", "#B4D7FF", "#75BAFF", "#349AFF", "#0582FF", "#0069D2",
-    "#003680", "#148F1B", "#1ACF06", "#64ED07", "#FFF32B",
-    "#E9DC01", "#F06000", "#FF7F26", "#FFA66A", "#F94E78",
-    "#F71E53", "#BE0000", "#880000", "#64007F", "#C201FC",
-    "#DD66FE", "#EBA6FF", "#F9E7FF", "#D4D4D4", "#969696"
-])
-tp_acc_colors.set_under(alpha=0)
-tp_acc_norm = mcolors.BoundaryNorm(tp_acc_bounds, tp_acc_colors.N)
+# regular-lat-lon, EPSG:4326, row0 = Norden, Werte = Pixelzentren.
+# MUSS zu GRID in generate_metadata.py passen (dort wird die Dateigröße geprüft).
+GRID_LON_MIN, GRID_LAT_MIN, GRID_LON_MAX, GRID_LAT_MAX = -3.94, 43.18, 20.34, 58.08
+GRID_WIDTH, GRID_HEIGHT = 1215, 746
 
-# ------------------------------
-# Windböen-Farben
-# ------------------------------
-wind_bounds = [10, 20, 30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 150, 160, 180, 200, 220, 240, 260, 280, 300]
-wind_colors = ListedColormap([
-    "#68AD05", "#8DC00B", "#B1D415", "#D5E81C", "#FBFC22",
-    "#FAD024", "#F9A427", "#FC7929", "#FB4D2B", "#EA2B57",
-    "#FB22A5", "#FC22CE", "#FC22F5", "#FC62F8", "#FD80F8",
-    "#FFBFFC", "#FEDFFE", "#FEFFFF", "#E1E0FF", "#C3C3FF",
-    "#A5A5FF", "#A5A5FF", "#6868FE"
-])
-wind_norm = mcolors.BoundaryNorm(wind_bounds, wind_colors.N)
-
-# ------------------------------
-# Niederschlags-Farben 1h (tp)
-# ------------------------------
-prec_bounds = [0.0, 0.1, 0.2, 0.5, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10,
-               12, 14, 16, 20, 24, 30, 40, 50, 60, 80, 100, 125]
-prec_colors = ListedColormap([
-    "#FFFFFF", "#B4D7FF", "#75BAFF", "#349AFF", "#0582FF", "#0069D2",
-    "#003680", "#148F1B", "#1ACF06", "#64ED07", "#FFF32B",
-    "#E9DC01", "#F06000", "#FF7F26", "#FFA66A", "#F94E78",
-    "#F71E53", "#BE0000", "#880000", "#64007F", "#C201FC",
-    "#DD66FE", "#EBA6FF", "#F9E7FF", "#D4D4D4"
-])
-prec_norm = mcolors.BoundaryNorm(prec_bounds, prec_colors.N)
+lon_t = np.linspace(GRID_LON_MIN, GRID_LON_MAX, GRID_WIDTH)
+lat_t = np.linspace(GRID_LAT_MAX, GRID_LAT_MIN, GRID_HEIGHT)   # Nord -> Süd
+lat_tt, lon_tt = np.meshgrid(lat_t, lon_t, indexing="ij")      # Shape (HEIGHT, WIDTH)
+target_points = np.column_stack((lat_tt.ravel(), lon_tt.ravel()))
 
 
-
-
-# ------------------------------
-# Kartendomäne (Deutschland-Extent aus Dokument 1, keine _eu-Variante mehr)
-# ------------------------------
-extent = [-3.94, 20.34, 43.18, 58.08]  # lon_min, lon_max, lat_min, lat_max
-
-FOOTER_TEXTS = {
-    "t2m": "Temperatur 2m (°C)",
-    "tp": "Niederschlag (mm)",
-    "tp_acc": "Akkumulierter Niederschlag (mm)",
-    "wind": "Windböen (km/h)",
-}
-
-# Einheit je Variable - für die Wertanzeige im Frontend
-VALUE_UNITS = {
-    "t2m": "°C",
-    "tp": "mm",
-    "tp_acc": "mm",
-    "wind": "km/h"
-}
-
-# Nachkommastellen je Variable für die Wertanzeige
-VALUE_DECIMALS = {
-    "t2m": 1,
-    "tp": 1,
-    "tp_acc": 1,
-    "wind": 0,
-}
-
-VALUE_NODATA = -9999.0
-
-# ------------------------------
-# EPSG:4326 -> EPSG:3857 (Web Mercator)
-# ------------------------------
-EARTH_RADIUS = 6378137.0  # Meter, WGS84/Web-Mercator-Kugelradius
-WEBMERCATOR_WIDTH = 1024   # Ziel-Bildbreite in Pixeln für die Reprojektion
-
-
-def lonlat_to_webmercator(lon_deg, lat_deg):
-    x = EARTH_RADIUS * np.radians(lon_deg)
-    y = EARTH_RADIUS * np.log(np.tan(np.pi / 4 + np.radians(lat_deg) / 2))
-    return x, y
-
-
-def webmercator_target_grid(extent, out_width=WEBMERCATOR_WIDTH):
-    lon_min, lon_max, lat_min, lat_max = extent
-    x_min, y_min = lonlat_to_webmercator(lon_min, lat_min)
-    x_max, y_max = lonlat_to_webmercator(lon_max, lat_max)
-    aspect = (y_max - y_min) / (x_max - x_min)
-    out_height = max(int(round(out_width * aspect)), 1)
-    x_new = np.linspace(x_min, x_max, out_width)
-    y_new = np.linspace(y_min, y_max, out_height)  # aufsteigend: Süd -> Nord
-    return x_new, y_new
-
-
-def warp_equirect_to_webmercator(data, lon, lat, extent, method="linear",
-                                  out_width=WEBMERCATOR_WIDTH):
-    """data/lon/lat: reguläres EPSG:4326-Gitter, lon und lat aufsteigend
-    sortiert. Gibt das Datenfeld auf einem regulären EPSG:3857-Pixelraster
-    zurück (ebenfalls Süd -> Nord aufsteigend), zugeschnitten auf extent."""
-    x_new, y_new = webmercator_target_grid(extent, out_width=out_width)
-    xx, yy = np.meshgrid(x_new, y_new)
-    lon_grid = np.degrees(xx / EARTH_RADIUS)
-    lat_grid = np.degrees(2 * np.arctan(np.exp(yy / EARTH_RADIUS)) - np.pi / 2)
-
-    interp_func = RegularGridInterpolator(
-        (lat, lon), data,
-        method=method,
-        bounds_error=False,
-        fill_value=np.nan
-    )
-    pts = np.array([lat_grid.ravel(), lon_grid.ravel()]).T
-    warped = interp_func(pts).reshape(lat_grid.shape)
-    return warped
-
-
-def data_to_rgba(data, cmap, norm):
-    """Wandelt ein 2D-Datenarray in ein RGBA-uint8-Array um.
-    NaN-Werte werden komplett transparent."""
-    rgba = cmap(norm(data))
-    rgba = (rgba * 255).astype(np.uint8)
+def encode_uint8(data, enc):
+    """float-Array (NaN erlaubt) -> uint8-Array (255 = NoData)."""
     nan_mask = ~np.isfinite(data)
-    rgba[nan_mask, 3] = 0
-    return rgba
+    vmin, vmax, tr = enc["vmin"], enc["vmax"], enc["transform"]
+    d = np.where(nan_mask, vmin, data).astype(np.float64)
+
+    if tr == "raw":
+        q = np.clip(np.rint(d), 0, LEVELS)
+    else:
+        d = np.clip(d, vmin, vmax)
+        if tr == "linear":
+            u = (d - vmin) / (vmax - vmin)
+        elif tr == "sqrt":
+            u = np.sqrt((d - vmin) / (vmax - vmin))
+        elif tr == "ssqrt":
+            u = (np.sign(d) * np.sqrt(np.abs(d) / vmax) + 1.0) / 2.0
+        else:
+            raise ValueError(tr)
+        q = np.rint(u * LEVELS)
+
+    q = q.astype(np.uint8)
+    q[nan_mask] = NODATA_U8
+    return q
 
 
-def composite_over(top_rgba, bottom_rgba):
-    """Alpha-Compositing (Porter-Duff 'over'): top_rgba über bottom_rgba legen."""
-    top = top_rgba.astype(np.float32) / 255.0
-    bottom = bottom_rgba.astype(np.float32) / 255.0
-    a_top = top[..., 3:4]
-    a_bottom = bottom[..., 3:4]
-    out_alpha = a_top + a_bottom * (1 - a_top)
-    out_rgb = np.where(
-        out_alpha > 1e-6,
-        (top[..., :3] * a_top + bottom[..., :3] * a_bottom * (1 - a_top)) / np.maximum(out_alpha, 1e-6),
-        0.0
+def normalize_grid(data, lon, lat):
+    """GFS liefert Längen 0..360 und Breiten von Nord nach Süd.
+    -> Längen auf -180..180 umklappen, beide Achsen aufsteigend sortieren."""
+    lon = np.where(lon > 180.0, lon - 360.0, lon)
+    order_lon = np.argsort(lon)
+    order_lat = np.argsort(lat)
+    return data[np.ix_(order_lat, order_lon)], lon[order_lon], lat[order_lat]
+
+
+def to_target_grid(data, lon, lat):
+    """Reguläres Quellgitter (lat, lon beliebig sortiert, lon 0..360 erlaubt)
+    -> Ausgaberaster (HEIGHT, WIDTH), row0 = Norden, bilinear.
+    Außerhalb des Quellgitters = NaN."""
+    data, lon, lat = normalize_grid(data, lon, lat)
+    interp = RegularGridInterpolator(
+        (lat, lon), data, method="linear", bounds_error=False, fill_value=np.nan
     )
-    out = np.concatenate([out_rgb, out_alpha], axis=-1)
-    return (out * 255).astype(np.uint8)
+    return interp(target_points).reshape(GRID_HEIGHT, GRID_WIDTH)
 
 
-def render_contour_overlay_rgba(x_new, y_new, data_grid, main_levels, fine_levels):
-    """Zeichnet Isolinien (Isobaren / Geopotenzial-Höhenlinien) mit
-    Beschriftung auf einen transparenten Hintergrund, exakt im
-    Pixelraster von (x_new, y_new) (Web-Mercator-Meter)."""
-    out_width, out_height = len(x_new), len(y_new)
-
-    if not np.any(np.isfinite(data_grid)):
-        return np.zeros((out_height, out_width, 4), dtype=np.uint8)
-
-    d_min = np.nanmin(data_grid)
-    d_max = np.nanmax(data_grid)
-    main_lv = [lv for lv in main_levels if d_min <= lv <= d_max]
-    fine_lv = [lv for lv in fine_levels if d_min <= lv <= d_max]
-
-    dpi = 100
-    fig = plt.figure(figsize=(out_width / dpi, out_height / dpi), dpi=dpi)
-    ax = fig.add_axes([0, 0, 1, 1])
-    ax.set_xlim(x_new[0], x_new[-1])
-    ax.set_ylim(y_new[0], y_new[-1])
-    ax.axis("off")
-    fig.patch.set_alpha(0)
-    ax.set_facecolor("none")
-
-    xx, yy = np.meshgrid(x_new, y_new)
-
-    if fine_lv:
-        ax.contour(xx, yy, data_grid, levels=fine_lv, colors="gray", linewidths=0.5, alpha=0.4)
-    if main_lv:
-        cs_main = ax.contour(xx, yy, data_grid, levels=main_lv, colors="white", linewidths=0.9, alpha=0.95)
-        ax.clabel(cs_main, inline=True, fmt='%d', fontsize=9, colors='black')
-
-    fig.canvas.draw()
-    buf = np.asarray(fig.canvas.buffer_rgba()).copy()
-    plt.close(fig)
-
-    if buf.shape[1] != out_width or buf.shape[0] != out_height:
-        buf = np.array(Image.fromarray(buf, mode="RGBA").resize((out_width, out_height), Image.LANCZOS))
-
-    # Canvas-Zeile 0 = Norden (oben) -> spiegeln, damit Zeile 0 = Süden
-    return buf[::-1]
+def get_valid_time(ds):
+    """Gültigkeitszeit (UTC) und Modelllauf-Zeit (UTC) aus dem Dataset."""
+    run_time_utc = pd.to_datetime(ds["time"].values) if "time" in ds else None
+    if "valid_time" in ds:
+        valid_time_raw = ds["valid_time"].values
+        valid_time_utc = pd.to_datetime(valid_time_raw[0]) if np.ndim(valid_time_raw) > 0 else pd.to_datetime(valid_time_raw)
+    else:
+        step = pd.to_timedelta(ds["step"].values[0])
+        valid_time_utc = run_time_utc + step
+    return run_time_utc, valid_time_utc
 
 
-def save_transparent_webp(data, cmap, norm, out_path, contour_rgba=None):
-    rgba = data_to_rgba(data, cmap, norm)
-    if contour_rgba is not None:
-        rgba = composite_over(contour_rgba, rgba)
-    img = Image.fromarray(rgba[::-1, :, :], mode="RGBA")
-    img.save(out_path, format="WEBP", lossless=True, method=4)
-
-
-_dom_x_min, _dom_y_min = lonlat_to_webmercator(extent[0], extent[2])
-_dom_x_max, _dom_y_max = lonlat_to_webmercator(extent[1], extent[3])
-DOMAIN_EXTENT_3857 = [float(_dom_x_min), float(_dom_y_min), float(_dom_x_max), float(_dom_y_max)]
-
-# ------------------------------
-# Deutschland-Bbox fuer den eingebetteten DVAL-Chunk (nur t2m/wind) -
-# das Farbbild bleibt auf der vollen Domaene, nur die Rohwerte im
-# Chunk werden zugeschnitten, um die Dateigroesse zu reduzieren.
-# ------------------------------
-GERMANY_BBOX_LONLAT = [5.5, 15.3, 47.0, 55.3]  # lon_min, lon_max, lat_min, lat_max
-
-_full_x_new, _full_y_new = webmercator_target_grid(extent, out_width=WEBMERCATOR_WIDTH)
-
-_gbx_min, _gby_min = lonlat_to_webmercator(GERMANY_BBOX_LONLAT[0], GERMANY_BBOX_LONLAT[2])
-_gbx_max, _gby_max = lonlat_to_webmercator(GERMANY_BBOX_LONLAT[1], GERMANY_BBOX_LONLAT[3])
-
-_col_i0 = max(0, np.searchsorted(_full_x_new, _gbx_min, side="left") - 1)
-_col_i1 = min(len(_full_x_new) - 1, np.searchsorted(_full_x_new, _gbx_max, side="right"))
-_row_i0 = max(0, np.searchsorted(_full_y_new, _gby_min, side="left") - 1)
-_row_i1 = min(len(_full_y_new) - 1, np.searchsorted(_full_y_new, _gby_max, side="right"))
-
-GERMANY_CROP_EXTENT_3857 = [
-    float(_full_x_new[_col_i0]), float(_full_y_new[_row_i0]),
-    float(_full_x_new[_col_i1]), float(_full_y_new[_row_i1]),
-]
-
-
-def crop_to_germany(data_south_first):
-    """data_south_first: 2D-Array wie von warp_equirect_to_webmercator
-    zurueckgegeben (row0 = Sueden). Schneidet auf die Deutschland-Bbox zu."""
-    return data_south_first[_row_i0:_row_i1 + 1, _col_i0:_col_i1 + 1]
-
-# ------------------------------
-# Eingebettete Rohdaten (DVAL-Chunk) im WebP
-# ------------------------------
-# Nur t2m aus Dokument 1 wird als Rohwert-Overlay fürs Frontend gebraucht
-# (analog zu t2m/wind in Dokument 2). Die Kartendomäne entspricht hier
-# bereits Deutschland, daher wird kein zusätzlicher Crop mehr benötigt -
-# es wird direkt die volle Domäne eingebettet.
-EMBED_DATA_VARS = {"t2m", "wind"}
-
-QUANTUM_STEP = {
-    "t2m": 0.05,   # °C, Anzeige mit 1 Dezimalstelle -> 0.05 ist mehr als genug
-    "wind": 0.2,
+meta = {
+    "var": var_type,
+    "unit": enc["unit"],
+    "dtype": "uint8",
+    "nodata": NODATA_U8,
+    "levels": LEVELS,
+    "transform": enc["transform"],
+    "vmin": enc["vmin"],
+    "vmax": enc["vmax"],
+    "decode": {
+        "linear": "v = vmin + (q/254) * (vmax - vmin)",
+        "sqrt": "v = vmin + (q/254)^2 * (vmax - vmin)",
+        "ssqrt": "u = q/254*2 - 1; v = sign(u) * u^2 * vmax",
+        "raw": "v = q",
+    }[enc["transform"]],
+    "orientation": "row0 = Norden, row-major, uint8",
+    "projection": "EPSG:4326",
+    "extent_4326": [GRID_LON_MIN, GRID_LAT_MIN, GRID_LON_MAX, GRID_LAT_MAX],
+    "width": GRID_WIDTH,
+    "height": GRID_HEIGHT,
+    "files": [],
 }
-NAN_SENTINEL_I16 = -32768
-DVAL_FOURCC = b"DVAL"
 
 
-def embed_data_chunk(webp_path, data, extent_3857, quantum, fourcc=DVAL_FOURCC):
-    """Hängt ein rohes Datenfeld als privaten, int16-quantisierten RIFF-Chunk
-    an ein WebP an.
+def save_field(data, lon, lat, valid_time_utc):
+    """Ein Feld -> Ausgaberaster -> uint8-Datei + Eintrag in meta. Rückgabe: Dateiname."""
+    valid_time_local = valid_time_utc.tz_localize("UTC").astimezone(ZoneInfo("Europe/Berlin"))
 
-    data: 2D-Array (float), row0 = Norden (also bereits wie fürs Bild
-          gespiegelt).
-    extent_3857: [x_min, y_min, x_max, y_max] in Web-Mercator-Metern.
-    quantum: Rasterschritt in den Originaleinheiten (z.B. 0.05 für °C).
-    """
-    height, width = data.shape
+    grid_data = to_target_grid(data, lon, lat)      # row0 = Norden
+    q = encode_uint8(grid_data, enc)
 
-    nan_mask = ~np.isfinite(data)
-    data_filled = np.where(nan_mask, 0.0, data)
-    quant = np.round(data_filled / quantum)
-    quant = np.clip(quant, -32767, 32767).astype(np.int16)
-    quant[nan_mask] = NAN_SENTINEL_I16
-
-    header = struct.pack("<BBII", 2, 1, width, height)
-    header += struct.pack("<4d", *extent_3857)
-    header += struct.pack("<d", quantum)
-    compressed = zlib.compress(np.ascontiguousarray(quant, dtype="<i2").tobytes(), level=9)
-    payload = header + compressed
-
-    size = len(payload)
-    chunk = fourcc + struct.pack("<I", size) + payload
-    if size % 2 == 1:
-        chunk += b"\x00"
-
-    with open(webp_path, "rb") as f:
-        content = f.read()
-
-    if content[0:4] != b"RIFF" or content[8:12] != b"WEBP":
-        raise ValueError(f"{webp_path} ist keine gültige WebP-Datei (RIFF/WEBP-Header fehlt)")
-
-    riff_size = struct.unpack("<I", content[4:8])[0]
-    new_riff_size = riff_size + len(chunk)
-
-    with open(webp_path, "wb") as f:
-        f.write(content[:4])
-        f.write(struct.pack("<I", new_riff_size))
-        f.write(content[8:])
-        f.write(chunk)
-
-
-def fix_longitude(lon, data):
-    """Falls Longitude im Bereich 0..360 vorliegt (z.B. GFS/NOAA nativ),
-    auf -180..180 umklappen und aufsteigend sortieren."""
-    if np.nanmax(lon) > 180:
-        lon_wrapped = ((lon + 180) % 360) - 180
-        order = np.argsort(lon_wrapped)
-        lon = lon_wrapped[order]
-        if data.ndim == 2:
-            data = data[:, order]
-        elif data.ndim == 3:
-            data = data[:, :, order]
-    return lon, data
-
-
-def ensure_ascending(lon, lat, data):
-    if lat[0] > lat[-1]:
-        lat = lat[::-1]
-        data = data[::-1, :]
-    if lon[0] > lon[-1]:
-        lon = lon[::-1]
-        data = data[:, ::-1]
-    return lon, lat, data
-
-
-def render_and_save(var_type, data, lon, lat, valid_time_local, output_dir):
-    """Gemeinsame Pipeline: Web-Mercator-Warp -> (Isolinien) -> WebP ->
-    (DVAL-Chunk) für t2m/geo/pmsl/snow."""
-    cmap, norm = {
-        "t2m": (t2m_colors, t2m_norm),
-        "wind": (wind_colors, wind_norm),
-        "tp": (prec_colors, prec_norm),
-    }[var_type]
-
-    render_data_merc = warp_equirect_to_webmercator(data, lon, lat, extent, method="linear")
-
-    contour_rgba = None
-    if var_type == "pmsl":
-        x_new_m, y_new_m = webmercator_target_grid(extent)
-        contour_rgba = render_contour_overlay_rgba(
-            x_new_m, y_new_m, render_data_merc,
-            main_levels=list(range(912, 1070, 4)),
-            fine_levels=list(range(912, 1070, 1)),
-        )
-    elif var_type == "geo":
-        x_new_m, y_new_m = webmercator_target_grid(extent)
-        contour_rgba = render_contour_overlay_rgba(
-            x_new_m, y_new_m, render_data_merc,
-            main_levels=list(range(4800, 6000, 40)),
-            fine_levels=list(range(4800, 6000, 20)),
-        )
-
-    outname = f"{var_type}_{valid_time_local:%Y%m%d_%H%M}.webp"
+    outname = f"{var_type}_{valid_time_local:%Y%m%d_%H%M}"
     out_path = os.path.join(output_dir, outname)
-    save_transparent_webp(render_data_merc, cmap, norm, out_path, contour_rgba=contour_rgba)
+    np.ascontiguousarray(q, dtype=np.uint8).tofile(out_path)
 
-    if var_type in EMBED_DATA_VARS:
-        germany_data = crop_to_germany(render_data_merc)          # row0 = Süden
-        quantum = QUANTUM_STEP.get(var_type, 0.1)
-        embed_data_chunk(out_path, germany_data[::-1], GERMANY_CROP_EXTENT_3857, quantum)  # row0 = Norden
-
+    meta["files"].append({
+        "file": outname,
+        "valid_time_utc": valid_time_utc.strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "valid_time_local": valid_time_local.strftime("%Y-%m-%dT%H:%M:%S%z"),
+    })
     return outname
 
 
 # ------------------------------
 # tp_acc: Akkumulation über alle Dateien eines Modellruns
 # ------------------------------
-def process_tp_acc_files(data_dir, output_dir):
+def process_tp_acc_files(data_dir):
     grib_files = sorted([f for f in os.listdir(data_dir) if f.endswith(".grib2")])
 
     if not grib_files:
@@ -415,15 +160,7 @@ def process_tp_acc_files(data_dir, output_dir):
                 ds.close()
                 continue
 
-            run_time_utc = pd.to_datetime(ds["time"].values) if "time" in ds else None
-
-            if "valid_time" in ds:
-                valid_time_raw = ds["valid_time"].values
-                valid_time_utc = pd.to_datetime(valid_time_raw[0]) if np.ndim(valid_time_raw) > 0 else pd.to_datetime(valid_time_raw)
-            else:
-                step = pd.to_timedelta(ds["step"].values[0])
-                valid_time_utc = run_time_utc + step
-
+            run_time_utc, valid_time_utc = get_valid_time(ds)
             forecast_hour = int((valid_time_utc - run_time_utc).total_seconds() / 3600)
 
             file_info.append({
@@ -453,15 +190,18 @@ def process_tp_acc_files(data_dir, output_dir):
 
         for idx, row in group.iterrows():
             ds = cfgrib.open_dataset(row['path'])
-            current_tp = ds["tp"].values
+            current_tp = np.asarray(ds["tp"].values, dtype=np.float64)
             if current_tp.ndim == 3:
                 current_tp = current_tp[0]
             current_tp[current_tp < 0] = 0
 
-            lon = ds["longitude"].values
-            lat = ds["latitude"].values
-            lon, current_tp = fix_longitude(lon, current_tp)
-            lon, lat, current_tp = ensure_ascending(lon, lat, current_tp)
+            lon = np.asarray(ds["longitude"].values, dtype=np.float64)
+            lat = np.asarray(ds["latitude"].values, dtype=np.float64)
+            ds.close()
+
+            if current_tp.shape != (lat.size, lon.size):
+                print(f"{row['filename']}: Datenform {current_tp.shape} passt nicht zum lat/lon-Gitter, überspringe")
+                continue
 
             if accumulated_tp is None:
                 accumulated_tp = current_tp.copy()
@@ -472,18 +212,12 @@ def process_tp_acc_files(data_dir, output_dir):
 
             previous_tp = current_tp.copy()
 
-            valid_time_local = row['valid_time'].tz_localize("UTC").astimezone(ZoneInfo("Europe/Berlin"))
-
-            render_data_merc = warp_equirect_to_webmercator(accumulated_tp, lon, lat, extent, method="linear")
-            outname = f"tp_acc_{valid_time_local:%Y%m%d_%H%M}.webp"
-            out_path = os.path.join(output_dir, outname)
-            save_transparent_webp(render_data_merc, tp_acc_colors, tp_acc_norm, out_path)
+            outname = save_field(accumulated_tp, lon, lat, row['valid_time'])
 
             print(f"  Forecast hour {row['forecast_hour']:03d}: "
                   f"Max akkumuliert = {np.nanmax(accumulated_tp):.1f} mm -> {outname}")
 
-            ds.close()
-            del current_tp, render_data_merc
+            del current_tp
             gc.collect()
 
 
@@ -491,13 +225,12 @@ def process_tp_acc_files(data_dir, output_dir):
 # Dateien durchgehen
 # ------------------------------
 if var_type == "tp_acc":
-    process_tp_acc_files(data_dir, output_dir)
+    process_tp_acc_files(data_dir)
 elif var_type in ("t2m", "wind", "tp"):
     for filename in sorted(os.listdir(data_dir)):
         if not filename.endswith(".grib2"):
             continue
         path = os.path.join(data_dir, filename)
-
 
         if var_type == "tp":
             ds = cfgrib.open_dataset(path, filter_by_keys={'stepType': 'instant'})
@@ -515,42 +248,35 @@ elif var_type in ("t2m", "wind", "tp"):
                 print(f"Keine 'gust' in {filename} - vorhandene Variablen: {list(ds.data_vars)}")
                 ds.close()
                 continue
-            data = ds["gust"].values * 3.6
+            data = ds["gust"].values * 3.6  # m/s -> km/h
             data[data < 0] = 0
         elif var_type == "tp":
             if "prate" not in ds:
                 print(f"Keine prate in {filename} - vorhandene Variablen: {list(ds.data_vars)}")
                 ds.close()
                 continue
-            data = ds["prate"].values * 3600
-            
+            data = ds["prate"].values * 3600  # kg/m²/s -> mm/h
 
+        data = np.asarray(data)
         if data.ndim == 3:
             data = data[0]
 
-        if var_type == "snow":
-            data = np.nan_to_num(data, nan=0.0)
-
-        lon = ds["longitude"].values
-        lat = ds["latitude"].values
-        lon, data = fix_longitude(lon, data)
-        lon, lat, data = ensure_ascending(lon, lat, data)
-
-        run_time_utc = pd.to_datetime(ds["time"].values) if "time" in ds else None
-
-        if "valid_time" in ds:
-            valid_time_raw = ds["valid_time"].values
-            valid_time_utc = pd.to_datetime(valid_time_raw[0]) if np.ndim(valid_time_raw) > 0 else pd.to_datetime(valid_time_raw)
-        else:
-            step = pd.to_timedelta(ds["step"].values[0])
-            valid_time_utc = run_time_utc + step
-        valid_time_local = valid_time_utc.tz_localize("UTC").astimezone(ZoneInfo("Europe/Berlin"))
-
-        outname = render_and_save(var_type, data, lon, lat, valid_time_local, output_dir)
-        print(f"{filename} -> {outname}")
-
+        lon = np.asarray(ds["longitude"].values, dtype=np.float64)
+        lat = np.asarray(ds["latitude"].values, dtype=np.float64)
+        _, valid_time_utc = get_valid_time(ds)
         ds.close()
+
+        if data.shape != (lat.size, lon.size):
+            print(f"{filename}: Datenform {data.shape} passt nicht zum lat/lon-Gitter, überspringe")
+            continue
+
+        outname = save_field(data, lon, lat, valid_time_utc)
+        print(f"{filename} -> {outname} ({GRID_WIDTH}x{GRID_HEIGHT})")
+
         del data
         gc.collect()
 else:
     print(f"Unbekannter var_type {var_type}")
+
+print("META: " + json.dumps(meta, ensure_ascii=False))
+print("Fertig!")
